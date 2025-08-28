@@ -14,7 +14,9 @@
  * - Serial CLI with JSON/CSV output modes
  * - Persistent calibration storage
  * 
- * Author: Generated for prototype development
+ * Author: Shishir Dwivedi
+ * Date: 29/08/2025
+ * Generated for prototype development
  */
 
 #include <Arduino.h>
