@@ -29,6 +29,10 @@
 #define PIN_MQ135_AO    33
 #define PIN_MQ9_HEATER  25
 
+float lastK9Low = 1.0f;
+float lastK9High = 1.0f; 
+float lastK135 = 1.0f;
+
 // ========== HARDWARE CONSTANTS ==========
 constexpr float VCC       = 5.0f;      // Sensor supply voltage
 constexpr float VADC_REF  = 1.10f;     // ESP32 ADC effective reference (calibrated)
@@ -221,8 +225,8 @@ float computeSlope(float* buffer, int windowSize) {
 // ========== HEATER CONTROL ==========
 
 void setupHeater() {
-  ledcSetup(0, 1000, 8); // Channel 0, 1kHz, 8-bit resolution
-  if (!ledcAttachPin(PIN_MQ9_HEATER, 0)) {
+  // ESP32 Arduino Core 3.x uses ledcAttach instead of ledcSetup + ledcAttachPin
+  if (!ledcAttach(PIN_MQ9_HEATER, 1000, 8)) {
     Serial.println("ERROR: Failed to attach heater pin to LEDC");
   }
 }
@@ -230,7 +234,7 @@ void setupHeater() {
 void applyHeaterPhase(HeaterPhase phase) {
   float duty = (phase == PHASE_LOW) ? DUTY_LOW : DUTY_HIGH;
   int dutyCycle = (int)(duty * 255);
-  ledcWrite(0, dutyCycle);
+  ledcWrite(PIN_MQ9_HEATER, dutyCycle);  // Changed from ledcWrite(0, dutyCycle)
   
   currentPhase = phase;
   phaseStartTime = millis();
@@ -726,9 +730,11 @@ void processSensorCycle() {
       float K9Low = 1.0f, K9High = 1.0f, K135 = 1.0f;
       
       if (calibrated && R0_mq9 > 0 && R0_mq135 > 0) {
-        K9Low = Rs9 / R0_mq9;  // This will be updated with phase-specific readings
-        K9High = Rs9 / R0_mq9; // This will be updated with phase-specific readings
-        K135 = Rs135 / R0_mq135;
+        if (currentPhase == PHASE_LOW) {
+          lastK9Low = Rs9 / R0_mq9;       // Capture LOW phase reading
+        } else {
+          lastK9High = Rs9 / R0_mq9;      // Capture HIGH phase reading  
+        }
       }
       
       // Apply median filtering
