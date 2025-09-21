@@ -1,6 +1,6 @@
 /*
   ESP32 Multi-Sensor System - Local Operation Only
-  - MQ2, MQ9, MQ135 Gas Sensors
+  - MQ2, MQ9, MQ135 Gas Sensors - FIXED FOR HIGH THRESHOLD ONLY
   - HTU21D Temperature & Humidity
   - FN-M16P Audio Module with PAM8403 Amplifier
   - LoRa Communication with Real Sensor Data
@@ -47,29 +47,18 @@
 // Node identification
 #define NODE_ID "SENSOR_NODE_001"
 
-// Thresholds - now dynamic based on calibration
-#define MQ2_THRESHOLD 2000  // Fallback static threshold
-#define MQ9_THRESHOLD 1800  // Fallback static threshold
-#define MQ135_THRESHOLD 1000 // Fallback static threshold
-
-// Calibration variables
-struct SensorCalibration {
-  float baseline;
-  float threshold;
-  bool calibrated;
-};
-
-SensorCalibration mq2_cal = {0, 0, false};
-SensorCalibration mq9_cal = {0, 0, false};
-SensorCalibration mq135_cal = {0, 0, false};
+// FIXED: Much higher static thresholds for genuine danger only
+#define MQ2_DANGER_THRESHOLD 1600   // Very high smoke/gas threshold
+#define MQ9_DANGER_THRESHOLD 3800   // Very high CO threshold
+#define MQ135_DANGER_THRESHOLD 1800 // Very high air quality threshold
 
 // HTU21D fallback values
 #define FALLBACK_TEMPERATURE 27.0  // 27°C
 #define FALLBACK_HUMIDITY 47.0     // 47% RH
 
-// Calibration parameters
-#define CALIBRATION_SAMPLES 5      // Number of samples for baseline
-#define STRICT_FACTOR 0.35         // 35% deviation threshold
+// Calibration parameters - FIXED
+#define CALIBRATION_SAMPLES 10     // More samples for better baseline
+#define DANGER_MULTIPLIER 2.0      // Must be 2x baseline to trigger (200% increase!)
 #define CALIBRATION_DELAY 2000     // 2 seconds between samples
 
 // FN-M16P Command Structure
@@ -84,7 +73,7 @@ const byte CMD_PLAY_TRACK = 0x03;
 const byte CMD_VOLUME = 0x06;
 const byte CMD_STOP = 0x16;
 
-// Audio file mapping - RESTORED to original 1:1 correspondence
+// Audio file mapping
 enum AudioFiles {
   BOOT_AUDIO = 1,         // 0001.mp3 - System startup
   SMOKE_ALERT = 2,        // 0002.mp3 - Smoke/Gas alert
@@ -95,6 +84,17 @@ enum AudioFiles {
   HIGH_HUMIDITY_ALERT = 7, // 0007.mp3 - High humidity
   LOW_HUMIDITY_ALERT = 8  // 0008.mp3 - Low humidity
 };
+
+// FIXED: New calibration structure - only care about high threshold
+struct SensorCalibration {
+  float baseline;
+  float dangerThreshold;  // Only trigger when MUCH higher than baseline
+  bool calibrated;
+};
+
+SensorCalibration mq2_cal = {0, 0, false};
+SensorCalibration mq9_cal = {0, 0, false};
+SensorCalibration mq135_cal = {0, 0, false};
 
 // Initialize modules
 Adafruit_HTU21DF htu = Adafruit_HTU21DF();
@@ -125,8 +125,8 @@ struct SensorData {
 void setup() {
   Serial.begin(115200);
   Serial.println("=================================");
-  Serial.println("ESP32 Multi-Sensor System v5.1");
-  Serial.println("Local Operation Only");
+  Serial.println("ESP32 Multi-Sensor System v5.2");
+  Serial.println("FIXED: High Gas Threshold Only");
   Serial.println("=================================");
   
   // Initialize MQ sensor pins
@@ -144,17 +144,14 @@ void setup() {
 
   // Initialize FN-M16P Audio Module
   fnM16pSerial.begin(9600, SERIAL_8N1, FN_M16P_RX, FN_M16P_TX);
-  // BUSY, I/O1, I/O2 pins not used as per requirements
-  
   delay(2000); // Give FN-M16P time to initialize
   
   Serial.println("Initializing FN-M16P Audio Module...");
-  setVolume(20); // Set volume (0-30)
+  setVolume(30); // Set volume (0-30)
   delay(500);
   
   audioReady = true;
   Serial.println("FN-M16P initialized successfully!");
-  Serial.println("Audio files: 0001.mp3, 0002.mp3, etc. in SD root directory");
   
   // Initialize LoRa
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
@@ -165,36 +162,30 @@ void setup() {
     loraReady = false;
   } else {
     // Set LoRa parameters for maximum reliability
-    LoRa.setTxPower(20);          // Max TX power
-    LoRa.setSpreadingFactor(12);  // Max range
+    LoRa.setTxPower(20);
+    LoRa.setSpreadingFactor(12);
     LoRa.setSignalBandwidth(125E3);
-    LoRa.setCodingRate4(8);       // Max error correction
+    LoRa.setCodingRate4(8);
     LoRa.setPreambleLength(8);
     LoRa.setSyncWord(0x34);
     
     Serial.println("LoRa initialized successfully!");
-    Serial.println("Frequency: " + String(LORA_BAND/1E6) + " MHz");
-    Serial.println("Node ID: " + String(NODE_ID));
     loraReady = true;
   }
   
   Serial.println("Warming up gas sensors...");
-  delay(10000); // 10 second warm-up
+  delay(15000); // 15 second warm-up for better stability
   
   // Calibrate MQ sensors after warm-up
-  Serial.println("Calibrating MQ sensors...");
+  Serial.println("Calibrating MQ sensors for DANGER-ONLY thresholds...");
   calibrateSensors();
   
   Serial.println("System ready!");
   Serial.println();
   
-  // Remove the test code and restore normal boot audio
-  Serial.println("System ready!");
-  Serial.println();
-  
-  // Play startup sound (now correctly mapped)
+  // Play startup sound
   if (audioReady) {
-    playAudioFile(BOOT_AUDIO);  // This will now play 0001.mp3 correctly
+    playAudioFile(BOOT_AUDIO);
     delay(2000);
   }
 }
@@ -238,16 +229,6 @@ void sendCommand(byte cmd, byte param1, byte param2, bool feedback) {
   packet[8] = checksum & 0xFF;
   packet[9] = FRAME_END;
   
-  // DEBUG: Print the exact bytes being sent
-  Serial.print("Sending to FN-M16P: ");
-  for(int i = 0; i < 10; i++) {
-    Serial.print("0x");
-    if(packet[i] < 16) Serial.print("0");
-    Serial.print(packet[i], HEX);
-    Serial.print(" ");
-  }
-  Serial.println();
-  
   fnM16pSerial.write(packet, 10);
 }
 
@@ -263,7 +244,6 @@ void playAudioFile(int fileNumber) {
   
   Serial.println("*** AUDIO TRIGGERED at " + String(millis()) + "ms ***");
   
-  // Standard 1:1 file mapping - Command matches file number
   String fileName = "";
   if(fileNumber < 10) fileName = "000" + String(fileNumber);
   else fileName = "00" + String(fileNumber);
@@ -291,9 +271,9 @@ void stopAudio() {
   sendCommand(CMD_STOP, 0x00, 0x00, false);
 }
 
-// Sensor calibration function
+// FIXED: New calibration function - establishes DANGER thresholds only
 void calibrateSensors() {
-  Serial.println("Starting sensor calibration...");
+  Serial.println("Starting sensor calibration for DANGER thresholds...");
   Serial.println("Ensure sensors are in clean air environment");
   delay(3000);
   
@@ -310,12 +290,15 @@ void calibrateSensors() {
   calibrateSensor(MQ135_ANALOG_PIN, &mq135_cal, "MQ135");
   
   Serial.println("Sensor calibration completed!");
-  Serial.println("Baselines established:");
-  Serial.printf("  MQ2: %.1f (threshold: %.1f)\n", mq2_cal.baseline, mq2_cal.threshold);
-  Serial.printf("  MQ9: %.1f (threshold: %.1f)\n", mq9_cal.baseline, mq9_cal.threshold);
-  Serial.printf("  MQ135: %.1f (threshold: %.1f)\n", mq135_cal.baseline, mq135_cal.threshold);
+  Serial.println("DANGER-ONLY Baselines established:");
+  Serial.printf("  MQ2: %.1f (DANGER threshold: %.1f - must be 4x baseline!)\n", mq2_cal.baseline, mq2_cal.dangerThreshold);
+  Serial.printf("  MQ9: %.1f (DANGER threshold: %.1f - must be 4x baseline!)\n", mq9_cal.baseline, mq9_cal.dangerThreshold);
+  Serial.printf("  MQ135: %.1f (DANGER threshold: %.1f - must be 4x baseline!)\n", mq135_cal.baseline, mq135_cal.dangerThreshold);
+  Serial.println();
+  Serial.println("Audio alerts will ONLY trigger at extreme gas levels!");
 }
 
+// FIXED: New calibration function - only high thresholds
 void calibrateSensor(int pin, SensorCalibration* cal, String sensorName) {
   float sum = 0;
   
@@ -327,32 +310,45 @@ void calibrateSensor(int pin, SensorCalibration* cal, String sensorName) {
   }
   
   cal->baseline = sum / CALIBRATION_SAMPLES;
-  cal->threshold = cal->baseline * STRICT_FACTOR;
-  cal->calibrated = true;
   
+  // FIXED: Only create danger threshold (must be 4x baseline)
+  cal->dangerThreshold = cal->baseline * DANGER_MULTIPLIER;
+  
+  // Also ensure minimum static threshold for safety
+  if (sensorName == "MQ2" && cal->dangerThreshold < MQ2_DANGER_THRESHOLD) {
+    cal->dangerThreshold = MQ2_DANGER_THRESHOLD;
+  }
+  if (sensorName == "MQ9" && cal->dangerThreshold < MQ9_DANGER_THRESHOLD) {
+    cal->dangerThreshold = MQ9_DANGER_THRESHOLD;
+  }
+  if (sensorName == "MQ135" && cal->dangerThreshold < MQ135_DANGER_THRESHOLD) {
+    cal->dangerThreshold = MQ135_DANGER_THRESHOLD;
+  }
+  
+  cal->calibrated = true;
   Serial.println(" Done");
 }
 
-// Enhanced sensor checking with dynamic thresholds
-bool checkSensorAlert(int currentValue, SensorCalibration* cal, int staticThreshold) {
+// FIXED: Only trigger alerts for VERY HIGH readings (danger level)
+bool checkSensorDanger(int currentValue, SensorCalibration* cal, int staticDangerThreshold) {
   if (!cal->calibrated) {
-    // Fall back to static threshold if not calibrated
-    return currentValue > staticThreshold;
+    // Fall back to static danger threshold if not calibrated
+    return currentValue > staticDangerThreshold;
   }
   
-  float deviation = abs(currentValue - cal->baseline);
-  return deviation > cal->threshold;
+  // ONLY trigger if current value exceeds danger threshold (4x baseline OR static minimum)
+  return currentValue > cal->dangerThreshold;
 }
 
-void logSensorStatus(String sensorName, int currentValue, SensorCalibration* cal, bool isAlert) {
+void logSensorStatus(String sensorName, int currentValue, SensorCalibration* cal, bool isDanger) {
   if (cal->calibrated) {
-    float deviation = currentValue - cal->baseline;
-    Serial.printf("  %s: %d (baseline: %.1f, deviation: %.1f) - %s\n", 
-                  sensorName.c_str(), currentValue, cal->baseline, deviation, 
-                  isAlert ? "ALERT!" : "Normal");
+    float ratio = currentValue / cal->baseline;
+    Serial.printf("  %s: %d (baseline: %.1f, ratio: %.1fx, danger: %.1f) - %s\n", 
+                  sensorName.c_str(), currentValue, cal->baseline, ratio, cal->dangerThreshold,
+                  isDanger ? "DANGER!" : "Safe");
   } else {
     Serial.printf("  %s: %d (uncalibrated) - %s\n", 
-                  sensorName.c_str(), currentValue, isAlert ? "ALERT!" : "Normal");
+                  sensorName.c_str(), currentValue, isDanger ? "DANGER!" : "Safe");
   }
 }
 
@@ -392,11 +388,6 @@ SensorData readAllSensors() {
   return data;
 }
 
-bool isPlaying() {
-  // Since BUSY pin not used, assume not playing for safety
-  return false;
-}
-
 void displayReadings(SensorData data) {
   Serial.println("=== SENSOR READINGS ===");
   Serial.println("Timestamp: " + String(data.timestamp));
@@ -410,121 +401,114 @@ void displayReadings(SensorData data) {
   Serial.printf("  Humidity: %.2f%%\n", data.humidity);
   Serial.println();
   
-  // Gas sensors with enhanced status display
-  Serial.println("MQ2 (Smoke/LPG/Gas):");
+  // FIXED: Gas sensors with DANGER-only status display
+  Serial.println("MQ2 (Smoke/LPG/Gas) - DANGER-ONLY Alerts:");
   Serial.printf("  Digital: %s | Analog: %d", 
     data.mq2_digital ? "GAS DETECTED" : "No Gas", data.mq2_analog);
-  bool mq2_alert = checkSensorAlert(data.mq2_analog, &mq2_cal, MQ2_THRESHOLD);
-  Serial.println(mq2_alert ? " - ALERT!" : " - Normal");
-  logSensorStatus("MQ2", data.mq2_analog, &mq2_cal, mq2_alert);
+  bool mq2_danger = checkSensorDanger(data.mq2_analog, &mq2_cal, MQ2_DANGER_THRESHOLD);
+  Serial.println(mq2_danger ? " - EXTREME DANGER!" : " - Safe");
+  logSensorStatus("MQ2", data.mq2_analog, &mq2_cal, mq2_danger);
   
-  Serial.println("MQ9 (Carbon Monoxide):");
+  Serial.println("MQ9 (Carbon Monoxide) - DANGER-ONLY Alerts:");
   Serial.printf("  Digital: %s | Analog: %d", 
     data.mq9_digital ? "CO DETECTED" : "No CO", data.mq9_analog);
-  bool mq9_alert = checkSensorAlert(data.mq9_analog, &mq9_cal, MQ9_THRESHOLD);
-  Serial.println(mq9_alert ? " - ALERT!" : " - Normal");
-  logSensorStatus("MQ9", data.mq9_analog, &mq9_cal, mq9_alert);
+  bool mq9_danger = checkSensorDanger(data.mq9_analog, &mq9_cal, MQ9_DANGER_THRESHOLD);
+  Serial.println(mq9_danger ? " - EXTREME DANGER!" : " - Safe");
+  logSensorStatus("MQ9", data.mq9_analog, &mq9_cal, mq9_danger);
   
-  Serial.println("MQ135 (Air Quality/CO2):");
+  Serial.println("MQ135 (Air Quality/CO2) - DANGER-ONLY Alerts:");
   Serial.printf("  Digital: %s | Analog: %d", 
     data.mq135_digital ? "POOR AIR" : "Good Air", data.mq135_analog);
-  bool mq135_alert = checkSensorAlert(data.mq135_analog, &mq135_cal, MQ135_THRESHOLD);
-  Serial.println(mq135_alert ? " - ALERT!" : " - Normal");
-  logSensorStatus("MQ135", data.mq135_analog, &mq135_cal, mq135_alert);
-  
-  // Add debugging for digital pin raw values
-  Serial.println();
-  Serial.println("Debug - Digital Pin Raw Values:");
-  Serial.printf("  MQ2 Digital Pin (GPIO%d): %d\n", MQ2_DIGITAL_PIN, digitalRead(MQ2_DIGITAL_PIN));
-  Serial.printf("  MQ9 Digital Pin (GPIO%d): %d\n", MQ9_DIGITAL_PIN, digitalRead(MQ9_DIGITAL_PIN));
-  Serial.printf("  MQ135 Digital Pin (GPIO%d): %d\n", MQ135_DIGITAL_PIN, digitalRead(MQ135_DIGITAL_PIN));
+  bool mq135_danger = checkSensorDanger(data.mq135_analog, &mq135_cal, MQ135_DANGER_THRESHOLD);
+  Serial.println(mq135_danger ? " - EXTREME DANGER!" : " - Safe");
+  logSensorStatus("MQ135", data.mq135_analog, &mq135_cal, mq135_danger);
 }
 
+// FIXED: Only trigger audio for EXTREME danger levels
 void checkAlerts(SensorData data) {
   static unsigned long lastAlert = 0;
   unsigned long now = millis();
   
   Serial.printf("checkAlerts() called at %lu ms (lastAlert: %lu ms)\n", now, lastAlert);
   
-  // Avoid too frequent alerts (minimum 30 seconds between alerts)
-  if (now - lastAlert < 30000) {
+  // Avoid too frequent alerts (minimum 60 seconds between alerts for extreme conditions)
+  if (now - lastAlert < 60000) {
     Serial.println("*** ALERT COOLDOWN ACTIVE - No alerts will play ***");
     return;
   }
   
-  // Check for dangerous conditions using ONLY analog thresholds
-  // Digital pins removed from alert conditions to prevent false alarms
-  bool mq2_alert = checkSensorAlert(data.mq2_analog, &mq2_cal, MQ2_THRESHOLD);
-  bool mq9_alert = checkSensorAlert(data.mq9_analog, &mq9_cal, MQ9_THRESHOLD);
-  bool mq135_alert = checkSensorAlert(data.mq135_analog, &mq135_cal, MQ135_THRESHOLD);
+  // FIXED: Check for EXTREME DANGER conditions only
+  bool mq2_danger = checkSensorDanger(data.mq2_analog, &mq2_cal, MQ2_DANGER_THRESHOLD);
+  bool mq9_danger = checkSensorDanger(data.mq9_analog, &mq9_cal, MQ9_DANGER_THRESHOLD);
+  bool mq135_danger = checkSensorDanger(data.mq135_analog, &mq135_cal, MQ135_DANGER_THRESHOLD);
   
-  // DEBUG: Print alert status
-  Serial.println("DEBUG Alert Status:");
-  Serial.printf("  MQ2 Alert: %s\n", mq2_alert ? "TRUE" : "FALSE");
-  Serial.printf("  MQ9 Alert: %s\n", mq9_alert ? "TRUE" : "FALSE");
-  Serial.printf("  MQ135 Alert: %s\n", mq135_alert ? "TRUE" : "FALSE");
+  // DEBUG: Print danger status
+  Serial.println("DEBUG Danger Status (4x baseline or static minimum):");
+  Serial.printf("  MQ2 EXTREME DANGER: %s (threshold: %.1f)\n", mq2_danger ? "TRUE" : "FALSE", mq2_cal.dangerThreshold);
+  Serial.printf("  MQ9 EXTREME DANGER: %s (threshold: %.1f)\n", mq9_danger ? "TRUE" : "FALSE", mq9_cal.dangerThreshold);
+  Serial.printf("  MQ135 EXTREME DANGER: %s (threshold: %.1f)\n", mq135_danger ? "TRUE" : "FALSE", mq135_cal.dangerThreshold);
   
-  // ONLY use analog thresholds for audio alerts - NO digital pins
-  if (mq2_alert) {
-    Serial.println("*** MQ2 ALERT TRIGGERED - PLAYING SMOKE ALERT ***");
-    Serial.println("ALERT: Smoke/Gas detected via analog threshold!");
+  // ONLY trigger audio for EXTREME readings
+  if (mq2_danger) {
+    Serial.println("*** EXTREME MQ2 DANGER - PLAYING SMOKE ALERT ***");
+    Serial.println("EXTREME DANGER: Very high smoke/gas levels detected!");
     playAudioFile(SMOKE_ALERT);
     lastAlert = now;
   }
-  else if (mq9_alert) {
-    Serial.println("*** MQ9 ALERT TRIGGERED - PLAYING CO ALERT ***");
-    Serial.println("ALERT: Carbon Monoxide detected via analog threshold!");
+  else if (mq9_danger) {
+    Serial.println("*** EXTREME MQ9 DANGER - PLAYING CO ALERT ***");
+    Serial.println("EXTREME DANGER: Very high carbon monoxide levels detected!");
     playAudioFile(CO_ALERT);
     lastAlert = now;
   }
-  else if (mq135_alert) {
-    Serial.println("*** MQ135 ALERT TRIGGERED - PLAYING AIR QUALITY ALERT ***");
-    Serial.println("WARNING: Poor air quality detected via analog threshold!");
+  else if (mq135_danger) {
+    Serial.println("*** EXTREME MQ135 DANGER - PLAYING AIR QUALITY ALERT ***");
+    Serial.println("EXTREME DANGER: Very poor air quality detected!");
     playAudioFile(AIR_QUALITY_WARNING);
     lastAlert = now;
   }
   else {
-    Serial.println("*** NO GAS SENSOR ALERTS - CHECKING TEMPERATURE/HUMIDITY ***");
+    Serial.println("*** NO EXTREME GAS DANGERS - CHECKING TEMPERATURE/HUMIDITY ***");
   }
   
-  // Temperature alerts (no change needed - already using reasonable absolute values)
-  if (data.temperature > 40.0) {
-    Serial.println("*** HIGH TEMPERATURE ALERT TRIGGERED ***");
-    Serial.println("ALERT: High temperature!");
+  // Temperature alerts (slightly more conservative)
+  if (data.temperature > 45.0) {
+    Serial.println("*** EXTREME HIGH TEMPERATURE ALERT TRIGGERED ***");
+    Serial.println("DANGER: Extreme high temperature!");
     playAudioFile(HIGH_TEMP_ALERT);
     lastAlert = now;
   }
-  else if (data.temperature < 5.0) {
-    Serial.println("*** LOW TEMPERATURE ALERT TRIGGERED ***");
-    Serial.println("ALERT: Low temperature!");
+  else if (data.temperature < 0.0) {
+    Serial.println("*** EXTREME LOW TEMPERATURE ALERT TRIGGERED ***");
+    Serial.println("DANGER: Freezing temperature!");
     playAudioFile(LOW_TEMP_ALERT);
     lastAlert = now;
   }
   
-  // Humidity alerts (no change needed - already using reasonable absolute values)
-  else if (data.humidity > 85.0) {
-    Serial.println("*** HIGH HUMIDITY ALERT TRIGGERED ***");
-    Serial.println("ALERT: High humidity!");
+  // Humidity alerts (more conservative)
+  else if (data.humidity > 90.0) {
+    Serial.println("*** EXTREME HIGH HUMIDITY ALERT TRIGGERED ***");
+    Serial.println("DANGER: Extreme high humidity!");
     playAudioFile(HIGH_HUMIDITY_ALERT);
     lastAlert = now;
   }
-  else if (data.humidity < 20.0) {
-    Serial.println("*** LOW HUMIDITY ALERT TRIGGERED ***");
-    Serial.println("ALERT: Low humidity!");
+  else if (data.humidity < 10.0) {
+    Serial.println("*** EXTREME LOW HUMIDITY ALERT TRIGGERED ***");
+    Serial.println("DANGER: Extreme low humidity!");
     playAudioFile(LOW_HUMIDITY_ALERT);
     lastAlert = now;
   }
   else {
-    Serial.println("*** NO ALERTS TRIGGERED - ALL VALUES NORMAL ***");
+    Serial.println("*** NO EXTREME CONDITIONS - ALL VALUES SAFE ***");
   }
 }
 
 void sendLoRaData(SensorData data) {
   packetCount++;
   
-  // Create JSON packet with real sensor data (NO timestamp)
+  // Create JSON packet with real sensor data
   StaticJsonDocument<280> doc;
-  doc["nodeId"] = "001";  // Fixed node ID format
+  doc["nodeId"] = "001";
   doc["packetCount"] = packetCount;
   
   // Real sensor data
