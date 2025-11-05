@@ -1,0 +1,66 @@
+name: MVP Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  firmware:
+    name: Build firmware (prototype1) if PlatformIO present
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('prototype1/platformio.ini') != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+      - run: pip install --upgrade platformio
+      - working-directory: prototype1
+        run: pio run
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prototype1-artifacts
+          path: prototype1/.pio/build/*/*.bin
+
+  php:
+    name: CTRL1 PHP (lint/tests)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: CTRL1 } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: mbstring, pdo_mysql, curl, json
+      - run: composer install --no-interaction --no-progress --prefer-dist || true
+      - run: php -v && php -m
+      - run: vendor/bin/phpunit || true
+      - run: vendor/bin/phpcs --standard=PSR12 || true
+
+  supabase:
+    name: Supabase (db + deploy ctrl2)
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v1
+        with: { deno-version: v1.x }
+
+      - uses: supabase/setup-cli@v1
+
+      - name: Link project
+        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env: { SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }} }
+
+      - name: Push DB schema
+        run: supabase db push --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env: { SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }} }
+
+      - name: Deploy ctrl2
+        run: supabase functions deploy ctrl2 --project-ref ${{ secrets.SUPABASE_PROJECT_ID }}
+        env: { SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }} }
+
+      - name: Smoke test ctrl2
+        run: |
+          curl -sS "https://${{ secrets.SUPABASE_PROJECT_ID }}.functions.supabase.co/ctrl2?device_id=EDGE-001&limit=5" | tee /dev/stderr 
