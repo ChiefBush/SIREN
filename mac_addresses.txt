@@ -1,0 +1,2 @@
+Wristband MAC: 0C:4E:A0:66:B2:78
+Edge Node MAC: 28:56:2f:49:56:ac
