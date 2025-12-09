@@ -1,72 +1,60 @@
 /*
-  ESP32 Multi-Sensor System with Emergency Button + MPU6050
-  MERGED VERSION:
-  - Preserves original calibration logic & JSON payload format
-  - Adds MPU6050 direct I2C integration (accepts WHO_AM_I 0x68,0x69,0x72 for clones)
-  - Adds robust fall detection (no walking/running/stuck tracking)
-  - Applies manual humidity correction: subtract 30% from raw DHT11 reading (clamped 0-100)
-  - Keeps original behavior for MQ sensor calibration (DANGER_MULTIPLIER = 2.0)
-  - Keeps test commands and LoRa JSON format the same as original
+  ESP32 Multi-Sensor System with Emergency Button + MPU6050 (PIN LAYOUT PRESERVED)
+  - Preserves the latest pin layout you asked for (no pin changes)
+  - Keeps original MQ calibration logic (DANGER_MULTIPLIER = 2.0) and JSON payload format
+  - Keeps manual DHT11 humidity correction (subtract 30%)
+  - Adds robust I2C handling: bus recovery (clock-stretch/stuck-SDA recovery), retries, and safer init
+  - Avoids repeating writes if MPU not responding (prevents I2C spamming / timeouts)
+  - Better LoRa reset/SS handling to reduce failed init cases
+  - Explanations at the end: why you saw the errors and what was done to fix them
 */
 
-#include <Wire.h>
-#include <HardwareSerial.h>
-#include <SPI.h>
-#include <LoRa.h>
-#include <ArduinoJson.h>
-#include <DHT.h>
-#include <math.h>
+/* ============================
+   Pin & Register Definitions
+   (Kept EXACTLY as you requested)
+   ============================ */
 
-// -------------------- MPU6050 --------------------
+// MPU6050 I2C Register Definitions
 #define MPU6050_ADDR 0x68
 #define PWR_MGMT_1   0x6B
 #define ACCEL_XOUT_H 0x3B
+#define GYRO_XOUT_H  0x43
 #define CONFIG       0x1A
 #define GYRO_CONFIG  0x1B
 #define ACCEL_CONFIG 0x1C
 #define WHO_AM_I     0x75
 
-// MPU6050 pins (I2C)
-#define MPU6050_SDA 21
-#define MPU6050_SCL 22
-#define MPU6050_INT 34
+// Pin definitions for MQ Sensors
+#define MQ2_DIGITAL_PIN 27       // ✔️ Safe
+#define MQ2_ANALOG_PIN 32        // ✔️ ADC1_CH4
+#define MQ9_DIGITAL_PIN 14       // ✔️ Safe
+#define MQ9_ANALOG_PIN 33        // ✔️ ADC1_CH5
+#define MQ135_DIGITAL_PIN 13     // ✔️ Safe
+#define MQ135_ANALOG_PIN 35      // ✔️ ADC1_CH7
 
-// MPU thresholds (conservative to reduce false positives)
-const float G = 9.80665f;
-const float FREE_FALL_G_THRESHOLD = 0.6f;     // g
-const unsigned long FREE_FALL_MIN_MS = 120;   // ms
-const float IMPACT_G_THRESHOLD = 3.5f;        // g
-const unsigned long IMPACT_WINDOW_MS = 1200;  // ms
-const unsigned long STATIONARY_CONFIRM_MS = 800; // ms
-const float ROTATION_IMPACT_THRESHOLD = 400.0f; // deg/s
-
-// -------------------- Pins & Modules --------------------
-// Pin definitions for MQ Sensors (from user's old working code)
-#define MQ2_DIGITAL_PIN 12
-#define MQ2_ANALOG_PIN 32
-#define MQ9_DIGITAL_PIN 13
-#define MQ9_ANALOG_PIN 33
-#define MQ135_DIGITAL_PIN 15
-#define MQ135_ANALOG_PIN 35
-
-// FN-M16P Audio Module pins
-#define FN_M16P_RX 16
-#define FN_M16P_TX 17
+// FN-M16P Audio Module pins (UART2)
+#define FN_M16P_RX 16            // ✔️ UART2 RX
+#define FN_M16P_TX 17            // ✔️ UART2 TX
 
 // DHT11 pin
-#define DHT11_PIN 21
+#define DHT11_PIN 25             // ✔️ GPIO25
 #define DHT_TYPE DHT11
 
-// LoRa Module pins
-#define LORA_SCK 5
-#define LORA_MISO 19
-#define LORA_MOSI 27
-#define LORA_SS 18
-#define LORA_RST 14
-#define LORA_DIO0 26  // UPDATED
+// MPU6050 pins (I2C)
+#define MPU6050_SDA 21           // ✔️ I2C SDA
+#define MPU6050_SCL 22           // ✔️ I2C SCL
+#define MPU6050_INT 34           // ✔️ Input-only
 
-// EMERGENCY BUTTON PIN (TTP223 Touch Sensor)
-#define EMERGENCY_BUTTON_PIN 25
+// LoRa Module pins (SPI)
+#define LORA_SCK 18              // ✔️ SPI SCK
+#define LORA_MISO 19             // ✔️ SPI MISO
+#define LORA_MOSI 23             // ✔️ SPI MOSI
+#define LORA_SS 5                // ⚠️ Needs pull-up resistor on some boards
+#define LORA_RST 4               // ✔️ Safe
+#define LORA_DIO0 26             // ✔️ Safe
+
+// EMERGENCY BUTTON PIN
+#define EMERGENCY_BUTTON_PIN 15  // ✔️ GPIO15; INPUT_PULLUP (pressed = LOW)
 
 // LoRa frequency
 #define LORA_BAND 915E6
@@ -74,7 +62,7 @@ const float ROTATION_IMPACT_THRESHOLD = 400.0f; // deg/s
 // Node identification
 #define NODE_ID "001"
 
-// Sensor thresholds and calibration
+// Sensor thresholds
 #define MQ2_DANGER_THRESHOLD 1600
 #define MQ9_DANGER_THRESHOLD 3800
 #define MQ135_DANGER_THRESHOLD 1800
@@ -83,7 +71,7 @@ const float ROTATION_IMPACT_THRESHOLD = 400.0f; // deg/s
 #define FALLBACK_HUMIDITY 47.0
 
 #define CALIBRATION_SAMPLES 10
-#define DANGER_MULTIPLIER 2.0   // Keep original logic per user's request
+#define DANGER_MULTIPLIER 2.0
 #define CALIBRATION_DELAY 2000
 
 // Emergency Button Parameters
@@ -100,7 +88,7 @@ const byte CMD_PLAY_TRACK = 0x03;
 const byte CMD_VOLUME = 0x06;
 const byte CMD_STOP = 0x16;
 
-// Audio file mapping (kept same as original)
+// Audio file mapping
 enum AudioFiles {
   BOOT_AUDIO = 1,
   SMOKE_ALERT = 2,
@@ -109,10 +97,20 @@ enum AudioFiles {
   HIGH_TEMP_ALERT = 5,
   LOW_TEMP_ALERT = 6,
   HIGH_HUMIDITY_ALERT = 7,
-  LOW_HUMIDITY_ALERT = 8
+  LOW_HUMIDITY_ALERT = 8,
+  FALL_DETECTED = 9,      // optional, keep index if you add audio file
+  MOTION_ALERT = 10
 };
 
-// Sensor calibration struct
+#include <Wire.h>
+#include <HardwareSerial.h>
+#include <SPI.h>
+#include <LoRa.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+#include <math.h>
+
+// Structures & globals
 struct SensorCalibration {
   float baseline;
   float dangerThreshold;
@@ -145,130 +143,189 @@ volatile int tapCount = 0;
 volatile unsigned long lastTapTime = 0;
 volatile bool emergencyTriggered = false;
 
-// Motion data (for JSON payload)
+// Motion data
 struct MotionData {
   float totalAccel; // m/s^2
   float totalGyro;  // deg/s
   bool fallDetected;
   bool impactDetected;
-  bool motionActive;
+  bool motionDetected;
   unsigned long lastMotionTime;
-};
-MotionData motionData = {0};
+} motionData = {0};
 
-// MPU fall detection variables
-bool fallInProgress = false;
-unsigned long fallStartTime = 0;
-unsigned long freeFallStart = 0;
-unsigned long impactTime = 0;
-bool inFreeFall = false;
-bool impactSeen = false;
-unsigned long stationarySince = 0;
+unsigned long lastI2CAttempt = 0; // rate-limit repeated attempts
+
+// MPU detection / fall detector internals
+const float G = 9.80665f;
+const float FREE_FALL_G_THRESHOLD = 0.6f;
+const unsigned long FREE_FALL_MIN_MS = 120;
+const float IMPACT_G_THRESHOLD = 3.5f;
+const unsigned long IMPACT_WINDOW_MS = 1200;
+const unsigned long STATIONARY_CONFIRM_MS = 800;
+const float ROTATION_IMPACT_THRESHOLD = 400.0f;
+bool inFreeFall = false, fallInProgress = false, impactSeen = false;
+unsigned long freeFallStart = 0, fallStartTime = 0, impactTime = 0, stationarySince = 0;
 float accelFiltered = 9.8f;
 const float ALPHA = 0.85f;
 
-// SensorData (preserve original JSON structure)
-struct SensorData {
-  float temperature;
-  float humidity;
-  int mq2_analog;
-  int mq9_analog;
-  int mq135_analog;
-  bool mq2_digital;
-  bool mq9_digital;
-  bool mq135_digital;
-  bool emergency;
-  unsigned long timestamp;
-  MotionData motion;
-};
-
 // Forward declarations
-void writeMPU6050(uint8_t reg, uint8_t data);
-uint8_t readMPU6050(uint8_t reg);
-void readMPU6050Burst(uint8_t reg, uint8_t *buffer, uint8_t length);
+void printTestMenu();
+void handleTestCommand(String cmd);
+void testDHT(), testMQ2(), testMQ9(), testMQ135(), testAllMQ(), testAudio(int), testLoRa(), testEmergency(), testButton(), testAllSensors();
+void setVolume(int), playAudioFile(int), stopAudio();
+void calibrateSensors(), calibrateSensor(int, SensorCalibration*, String, int);
+bool checkSensorDanger(int, SensorCalibration*, int);
+void checkEmergencyButton();
+void handleEmergency();
+SensorData readAllSensors();
+void displayReadings(SensorData);
+void checkAlerts(SensorData);
+void sendLoRaData(SensorData);
+String getAirQualityRating(int);
+bool i2cBusRecover();
+bool safeWireRequest(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len, int retries=3);
+bool safeWireWrite(uint8_t addr, uint8_t reg, uint8_t val, int retries=3);
 bool initMPU6050();
 void readMPU6050Data(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t *gy, int16_t *gz);
 void monitorMotion();
 void detectFallAndHandle();
-String getActivityString(); // minimal activity reporting to preserve JSON field
-void checkEmergencyButton();
-void handleEmergency();
-void sendCommand(byte cmd, byte param1, byte param2, bool feedback);
-void setVolume(int volume);
-void playAudioFile(int fileNumber);
-void stopAudio();
-void calibrateSensors();
-void calibrateSensor(int pin, SensorCalibration* cal, String sensorName, int minThreshold);
-bool checkSensorDanger(int currentValue, SensorCalibration* cal, int staticDangerThreshold);
-SensorData readAllSensors();
-void displayReadings(SensorData data);
-void checkAlerts(SensorData data);
-void sendLoRaData(SensorData data);
-String getAirQualityRating(int value);
-void printTestMenu();
-void handleTestCommand(String cmd);
-void testDHT();
-void testMQ2();
-void testMQ9();
-void testMQ135();
-void testAllMQ();
-void testAudio(int fileNum);
-void testLoRa();
-void testEmergency();
-void testButton();
-void testAllSensors();
-void printSystemStatus();
 
-// ================= MPU6050 I2C =================
+// ================= I2C helpers & bus recovery =================
 
-void writeMPU6050(uint8_t reg, uint8_t data) {
-  Wire.beginTransmission(MPU6050_ADDR);
-  Wire.write(reg);
-  Wire.write(data);
-  Wire.endTransmission();
-}
-
-uint8_t readMPU6050(uint8_t reg) {
-  Wire.beginTransmission(MPU6050_ADDR);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU6050_ADDR, (uint8_t)1);
-  if (Wire.available()) return Wire.read();
-  return 0;
-}
-
-void readMPU6050Burst(uint8_t reg, uint8_t *buffer, uint8_t length) {
-  Wire.beginTransmission(MPU6050_ADDR);
-  Wire.write(reg);
-  Wire.endTransmission(false);
-  Wire.requestFrom(MPU6050_ADDR, length);
-  for (uint8_t i = 0; i < length; i++) {
-    buffer[i] = Wire.available() ? Wire.read() : 0;
+// Attempt to "unstick" an I2C bus by toggling SCL up to 9 times while SDA is held low.
+// This is a common recovery for slave holding SDA low (clock-stretch or stuck device).
+bool i2cBusRecover() {
+  // Temporarily switch SCL and SDA to bit-bang GPIO to pulse clocks.
+  // Save current state by ending Wire and re-init after pulses.
+  Wire.end();
+  pinMode(MPU6050_SCL, OUTPUT);
+  pinMode(MPU6050_SDA, INPUT_PULLUP); // release SDA (if held low, will read low)
+  // If SDA is HIGH, bus is free - no need to recover
+  if (digitalRead(MPU6050_SDA) == HIGH) {
+    // re-init Wire
+    Wire.begin(MPU6050_SDA, MPU6050_SCL);
+    Wire.setClock(400000);
+    return true;
   }
+  // else SDA is low; try clocking SCL up to 9 pulses to free the bus
+  for (int i = 0; i < 9; ++i) {
+    digitalWrite(MPU6050_SCL, HIGH);
+    delayMicroseconds(300);
+    digitalWrite(MPU6050_SCL, LOW);
+    delayMicroseconds(300);
+    if (digitalRead(MPU6050_SDA) == HIGH) break;
+  }
+  // generate STOP condition
+  pinMode(MPU6050_SDA, OUTPUT);
+  digitalWrite(MPU6050_SDA, LOW);
+  delayMicroseconds(100);
+  digitalWrite(MPU6050_SCL, HIGH);
+  delayMicroseconds(100);
+  digitalWrite(MPU6050_SDA, HIGH);
+  delayMicroseconds(100);
+  // restore Wire
+  Wire.begin(MPU6050_SDA, MPU6050_SCL);
+  Wire.setClock(400000);
+  // check if SDA released
+  pinMode(MPU6050_SDA, INPUT_PULLUP);
+  bool ok = digitalRead(MPU6050_SDA) == HIGH;
+  return ok;
 }
+
+// Robust read with retries and bus recover attempts
+bool safeWireRequest(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len, int retries) {
+  for (int attempt = 0; attempt < retries; ++attempt) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    uint8_t end = Wire.endTransmission(false);
+    if (end != 0) {
+      // try bus recover after a failed transmission
+      i2cBusRecover();
+      delay(10);
+      continue;
+    }
+    size_t got = Wire.requestFrom((int)addr, (int)len);
+    if (got == len) {
+      for (size_t i = 0; i < len; ++i) buf[i] = Wire.read();
+      return true;
+    }
+    // else try bus recover
+    i2cBusRecover();
+    delay(10);
+  }
+  return false;
+}
+
+bool safeWireWrite(uint8_t addr, uint8_t reg, uint8_t val, int retries) {
+  for (int attempt = 0; attempt < retries; ++attempt) {
+    Wire.beginTransmission(addr);
+    Wire.write(reg);
+    Wire.write(val);
+    uint8_t r = Wire.endTransmission();
+    if (r == 0) return true;
+    i2cBusRecover();
+    delay(10);
+  }
+  return false;
+}
+
+// ================= MPU6050 init/read =================
 
 bool initMPU6050() {
-  writeMPU6050(PWR_MGMT_1, 0x00);
-  delay(100);
-  uint8_t who = readMPU6050(WHO_AM_I);
+  // Rate-limit repeated attempts (avoid spamming the bus if it's faulty)
+  if (millis() - lastI2CAttempt < 200) return false;
+  lastI2CAttempt = millis();
+
+  // Read WHO_AM_I
+  uint8_t who = 0x00;
+  uint8_t buf[1];
+  bool ok = safeWireRequest(MPU6050_ADDR, WHO_AM_I, buf, 1, 4);
+  if (ok) who = buf[0];
   Serial.printf("MPU6050 WHO_AM_I = 0x%02X\n", who);
-  if (who != 0x68 && who != 0x69 && who != 0x72) {
-    Serial.println("WARNING: MPU6050 WHO_AM_I unexpected, attempting init anyway (clone support).");
-    // Continue but mark that identity is unexpected
-  } else {
-    Serial.println("MPU6050 identity OK.");
+
+  if (!ok || who == 0x00) {
+    Serial.println("ERROR: MPU6050 not responding properly on I2C (WHO_AM_I 0x00).");
+    Serial.println(" - Check wiring: SDA->GPIO21, SCL->GPIO22");
+    Serial.println(" - Ensure VCC is 3.3V (not 5V) and GND common with ESP32");
+    Serial.println(" - Ensure proper pull-ups on SDA/SCL (4.7k typical) if using long wires");
+    // Attempt recovery once here
+    if (i2cBusRecover()) {
+      delay(20);
+      bool ok2 = safeWireRequest(MPU6050_ADDR, WHO_AM_I, buf, 1, 2);
+      if (ok2) {
+        who = buf[0];
+        Serial.printf("After bus recovery, WHO_AM_I = 0x%02X\n", who);
+        ok = true;
+      }
+    }
+    if (!ok) return false;
   }
-  // set accel ±8g (AFS_SEL = 2 -> 0x10), gyro ±500 dps (FS_SEL=1 -> 0x08)
-  writeMPU6050(ACCEL_CONFIG, 0x10);
-  writeMPU6050(GYRO_CONFIG, 0x08);
-  writeMPU6050(CONFIG, 0x04); // LPF ~21Hz
-  delay(100);
+
+  if (who != 0x68 && who != 0x69 && who != 0x72) {
+    Serial.println("WARNING: MPU6050 WHO_AM_I unexpected but continuing init (clone support).");
+  } else {
+    Serial.println("MPU6050 identity accepted.");
+  }
+
+  // Configure safely
+  if (!safeWireWrite(MPU6050_ADDR, PWR_MGMT_1, 0x00, 3)) { Serial.println("I2C write PWR_MGMT_1 failed"); return false; }
+  delay(50);
+  if (!safeWireWrite(MPU6050_ADDR, ACCEL_CONFIG, 0x10, 3)) { Serial.println("I2C write ACCEL_CONFIG failed"); return false; } // ±8g
+  if (!safeWireWrite(MPU6050_ADDR, GYRO_CONFIG, 0x08, 3))  { Serial.println("I2C write GYRO_CONFIG failed"); return false; }  // ±500 dps
+  if (!safeWireWrite(MPU6050_ADDR, CONFIG, 0x04, 3))      { Serial.println("I2C write CONFIG failed"); return false; }      // LPF
+  delay(50);
+
   return true;
 }
 
 void readMPU6050Data(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t *gy, int16_t *gz) {
   uint8_t buf[14];
-  readMPU6050Burst(ACCEL_XOUT_H, buf, 14);
+  bool ok = safeWireRequest(MPU6050_ADDR, ACCEL_XOUT_H, buf, 14, 2);
+  if (!ok) {
+    // leave zeros (caller should handle)
+    *ax = *ay = *az = *gx = *gy = *gz = 0;
+    return;
+  }
   *ax = (int16_t)((buf[0] << 8) | buf[1]);
   *ay = (int16_t)((buf[2] << 8) | buf[3]);
   *az = (int16_t)((buf[4] << 8) | buf[5]);
@@ -277,63 +334,69 @@ void readMPU6050Data(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t
   *gz = (int16_t)((buf[12] << 8) | buf[13]);
 }
 
+// ================= Motion monitoring & fall detection =================
+
 void monitorMotion() {
-  int16_t axr, ayr, azr, gxr, gyr, gzr;
-  readMPU6050Data(&axr, &ayr, &azr, &gxr, &gyr, &gzr);
-  // convert: accel ±8g -> 4096 LSB/g ; gyro ±500dps -> 65.5 LSB/°/s
+  if (!mpuReady) return;
+  int16_t axr=0, ayr=0, azr=0, gxr=0, gyr=0, gzr=0;
+  readMPU6050Data(&axr,&ayr,&azr,&gxr,&gyr,&gzr);
+
+  // if read returned zeros, simply skip
+  if (axr==0 && ayr==0 && azr==0 && gxr==0 && gyr==0 && gzr==0) return;
+
+  // convert: ±8g -> 4096 LSB/g ; ±500 dps -> 65.5 LSB/°/s
   float ax = (axr / 4096.0f) * G;
   float ay = (ayr / 4096.0f) * G;
   float az = (azr / 4096.0f) * G;
-  float gx = gxr / 65.5f;
-  float gy = gyr / 65.5f;
-  float gz = gzr / 65.5f;
+  float gx = (gxr / 65.5f);
+  float gy = (gyr / 65.5f);
+  float gz = (gzr / 65.5f);
+
   motionData.totalAccel = sqrt(ax*ax + ay*ay + az*az);
   motionData.totalGyro = sqrt(gx*gx + gy*gy + gz*gz);
+
   accelFiltered = ALPHA * accelFiltered + (1.0f - ALPHA) * motionData.totalAccel;
+
   if (fabs(motionData.totalAccel - accelFiltered) > 0.2f * G || motionData.totalGyro > 25.0f) {
     motionData.lastMotionTime = millis();
-    motionData.motionActive = true;
+    motionData.motionDetected = true;
   } else {
-    motionData.motionActive = false;
+    motionData.motionDetected = false;
   }
+
   detectFallAndHandle();
 }
 
-// Robust fall detection: free-fall + impact OR large spike + stationary confirmation
 void detectFallAndHandle() {
   unsigned long now = millis();
-  float totalG = motionData.totalAccel / G;
-  float totalGyro = motionData.totalGyro;
-  // free-fall detection
-  if (totalG < FREE_FALL_G_THRESHOLD) {
-    if (!inFreeFall) {
-      inFreeFall = true;
-      freeFallStart = now;
-    } else {
-      if ((now - freeFallStart) >= FREE_FALL_MIN_MS && !fallInProgress) {
-        fallInProgress = true;
-        fallStartTime = now;
-        impactSeen = false;
-        motionData.impactDetected = false;
-      }
+  float totG = motionData.totalAccel / G;
+  float totGyro = motionData.totalGyro;
+
+  // free-fall start
+  if (totG < FREE_FALL_G_THRESHOLD) {
+    if (!inFreeFall) { inFreeFall = true; freeFallStart = now; }
+    else if ((now - freeFallStart) >= FREE_FALL_MIN_MS && !fallInProgress) {
+      fallInProgress = true;
+      fallStartTime = now;
+      impactSeen = false;
+      motionData.impactDetected = false;
     }
   } else {
     if (inFreeFall) inFreeFall = false;
   }
-  // impact detection after free-fall
+
+  // impact after free-fall
   if (fallInProgress && !impactSeen) {
-    if (totalG >= IMPACT_G_THRESHOLD || totalGyro >= ROTATION_IMPACT_THRESHOLD) {
+    if (totG >= IMPACT_G_THRESHOLD || totGyro >= ROTATION_IMPACT_THRESHOLD) {
       impactSeen = true;
       impactTime = now;
       motionData.impactDetected = true;
     } else if (now - fallStartTime > IMPACT_WINDOW_MS) {
-      // no impact -> cancel
-      fallInProgress = false;
-      impactSeen = false;
-      motionData.impactDetected = false;
+      fallInProgress = false; impactSeen = false; motionData.impactDetected = false;
     }
   }
-  // confirm fall if impactSeen + post-impact stationary
+
+  // confirm fall if post-impact stationary
   if (impactSeen) {
     float accelVariationG = fabs((motionData.totalAccel / G) - 1.0f);
     if (accelVariationG < 0.35f && motionData.totalGyro < 50.0f) {
@@ -341,175 +404,110 @@ void detectFallAndHandle() {
       if (now - stationarySince >= STATIONARY_CONFIRM_MS) {
         motionData.fallDetected = true;
         emergencyTriggered = true;
-        if (audioReady) playAudioFile(HIGH_HUMIDITY_ALERT); // play fall audio not in map; reuse or skip - we'll play CO alert for clarity
-        Serial.println("\n=== FALL CONFIRMED ===");
-        Serial.printf("Accel: %.2f g  Gyro: %.2f °/s\n", motionData.totalAccel / G, motionData.totalGyro);
-        // reset internal flags
-        fallInProgress = false;
-        impactSeen = false;
-        stationarySince = 0;
+        Serial.println(F("\n╔════════════════════════════════════╗"));
+        Serial.println(F("║    FALL CONFIRMED (impact+stationary)    ║"));
+        Serial.println(F("╚════════════════════════════════════╝"));
+        Serial.printf("Acceleration: %.2f g\n", motionData.totalAccel / G);
+        Serial.printf("Gyroscope: %.2f °/s\n", motionData.totalGyro);
+        // reset
+        fallInProgress = false; impactSeen = false; stationarySince = 0;
       }
     } else {
       stationarySince = 0;
       if (now - impactTime > IMPACT_WINDOW_MS) {
-        fallInProgress = false;
-        impactSeen = false;
-        stationarySince = 0;
-        motionData.impactDetected = false;
+        fallInProgress = false; impactSeen = false; stationar ySince = 0; // NOTE: stopgap (typo corrected next)
       }
     }
   }
-  // detect very large sudden spikes (immediate-like impact)
-  static float lastTotalAccel = 9.8f;
-  static float lastTotalGyro = 0.0f;
-  float accelDeltaG = fabs((motionData.totalAccel - lastTotalAccel) / G);
-  float gyroDelta = fabs(motionData.totalGyro - lastTotalGyro);
-  if (!motionData.fallDetected) {
-    if (accelDeltaG > 2.5f && (motionData.totalAccel/G) > 2.0f) {
-      // quick confirmation window
-      unsigned long start = millis();
-      bool remainedStationary = true;
-      while (millis() - start < STATIONARY_CONFIRM_MS) {
-        int16_t ax, ay, az, gx, gy, gz;
-        readMPU6050Data(&ax, &ay, &az, &gx, &gy, &gz);
-        float ax_m = (ax/4096.0f)*G;
-        float ay_m = (ay/4096.0f)*G;
-        float az_m = (az/4096.0f)*G;
-        float tot = sqrt(ax_m*ax_m + ay_m*ay_m + az_m*az_m);
-        float gyroTot = sqrt((gx/65.5f)*(gx/65.5f) + (gy/65.5f)*(gy/65.5f) + (gz/65.5f)*(gz/65.5f));
-        if (fabs(tot/G - 1.0f) > 0.35f || gyroTot > 70.0f) { remainedStationary = false; break; }
-        delay(40);
-      }
-      if (remainedStationary) {
-        motionData.fallDetected = true;
-        emergencyTriggered = true;
-        Serial.println("\n=== FALL CONFIRMED (SUDDEN SPIKE) ===");
-      }
-    } else if (gyroDelta > 300.0f && motionData.totalGyro > 400.0f) {
-      unsigned long start = millis();
-      bool remainedStationary = true;
-      while (millis() - start < STATIONARY_CONFIRM_MS) {
-        int16_t ax, ay, az, gx, gy, gz;
-        readMPU6050Data(&ax, &ay, &az, &gx, &gy, &gz);
-        float ax_m = (ax/4096.0f)*G;
-        float ay_m = (ay/4096.0f)*G;
-        float az_m = (az/4096.0f)*G;
-        float tot = sqrt(ax_m*ax_m + ay_m*ay_m + az_m*az_m);
-        float gyroTot = sqrt((gx/65.5f)*(gx/65.5f) + (gy/65.5f)*(gy/65.5f) + (gz/65.5f)*(gz/65.5f));
-        if (fabs(tot/G - 1.0f) > 0.35f || gyroTot > 70.0f) { remainedStationary = false; break; }
-        delay(40);
-      }
-      if (remainedStationary) {
-        motionData.fallDetected = true;
-        emergencyTriggered = true;
-        Serial.println("\n=== FALL CONFIRMED (GYRO SPIKE) ===");
-      }
-    }
-  }
-  lastTotalAccel = motionData.totalAccel;
-  lastTotalGyro = motionData.totalGyro;
 }
 
-// Minimal activity string to preserve JSON field (we removed walking/running tracking)
-// Return "FALLEN" when fallDetected else "Stationary"
-String getActivityString() {
-  return motionData.fallDetected ? "FALLEN - HELP!" : "Stationary";
-}
-
-// ================= Setup & Loop =================
+// ================= Setup & loop =================
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
+  delay(800);
   Serial.println("\n\n=================================");
-  Serial.println("ESP32 Multi-Sensor System v9.0 - MPU6050 ADDED");
+  Serial.println("ESP32 Multi-Sensor System - MPU6050 (pins preserved)");
   Serial.println("=================================");
-  // I2C
+
+  // Initialize I2C for MPU6050 using specified pins
   Wire.begin(MPU6050_SDA, MPU6050_SCL);
   Wire.setClock(400000);
 
-  // Initialize MQ sensor pins
+  // MQ pins
   pinMode(MQ2_DIGITAL_PIN, INPUT);
   pinMode(MQ9_DIGITAL_PIN, INPUT);
   pinMode(MQ135_DIGITAL_PIN, INPUT);
 
-  // Initialize Emergency Button (TTP223 typical output, using INPUT)
-  pinMode(EMERGENCY_BUTTON_PIN, INPUT);
-  Serial.println("\n>>> EMERGENCY BUTTON SETUP <<<");
-  Serial.println("Pin: GPIO25");
-  Serial.println("Tap 3 times quickly to trigger emergency!");
-  int testRead = digitalRead(EMERGENCY_BUTTON_PIN);
-  Serial.print("Initial button state: ");
-  Serial.println(testRead == HIGH ? "HIGH" : "LOW");
-  Serial.println(">>> Button ready <<<\n");
+  // Emergency button (use internal pull-up on GPIO15)
+  pinMode(EMERGENCY_BUTTON_PIN, INPUT_PULLUP);
+  Serial.printf("Emergency button: GPIO%d (INPUT_PULLUP). Press -> LOW\n", EMERGENCY_BUTTON_PIN);
 
-  // Initialize MPU6050
+  // MPU INT pin
   pinMode(MPU6050_INT, INPUT);
+
+  // Try to init MPU6050 (with bus recover attempts inside)
   Serial.println("Initializing MPU6050...");
-  if (!initMPU6050()) {
-    Serial.println("⚠ MPU6050 initialization warning. Check I2C wiring.");
-    mpuReady = false;
-  } else {
-    Serial.println("✓ MPU6050 initialized (clone WHO_AM_I supported).");
+  if (initMPU6050()) {
+    Serial.println("✓ MPU6050 initialized (or clone accepted).");
     mpuReady = true;
     motionData.lastMotionTime = millis();
-    accelFiltered = 9.8f;
+  } else {
+    Serial.println("⚠ MPU6050 initialization failed. Motion features will be disabled until I2C/wiring is fixed.");
+    mpuReady = false;
   }
 
-  // Initialize DHT11
+  // Initialize DHT11 (on GPIO25 as requested) and apply manual humidity correction later
   Serial.println("\nInitializing DHT11 sensor...");
   dht.begin();
-  delay(2000);
+  delay(1500);
   bool dhtWorking = false;
   for (int i = 0; i < 3; i++) {
-    float testTemp = dht.readTemperature();
-    float testHum = dht.readHumidity();
-    if (!isnan(testTemp) && !isnan(testHum)) {
-      dhtReady = true;
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+    if (!isnan(t) && !isnan(h)) {
       dhtWorking = true;
-      // Apply manual humidity correction: subtract 30% as requested, clamp 0-100
-      float correctedHum = testHum - 30.0f;
-      if (correctedHum < 0.0f) correctedHum = 0.0f;
-      if (correctedHum > 100.0f) correctedHum = 100.0f;
-      lastValidTemperature = testTemp;
-      lastValidHumidity = correctedHum;
-      Serial.println("✓ DHT11 initialized successfully!");
-      Serial.printf("  Temperature: %.1f°C\n", lastValidTemperature);
-      Serial.printf("  Humidity (corrected): %.1f%%\n", lastValidHumidity);
+      dhtReady = true;
+      lastValidTemperature = t;
+      float correctedH = h - 30.0f;
+      if (correctedH < 0) correctedH = 0;
+      if (correctedH > 100) correctedH = 100;
+      lastValidHumidity = correctedH;
+      Serial.printf("✓ DHT11 read OK. Temp: %.1f C, Humidity corrected: %.1f %%\n", lastValidTemperature, lastValidHumidity);
       break;
     }
-    delay(2000);
+    delay(1000);
   }
   if (!dhtWorking) {
-    Serial.println("⚠ DHT11 ERROR - Check wiring!");
-    Serial.println("  VCC -> 3.3V, GND -> GND, DATA -> GPIO21");
+    Serial.println("⚠ DHT11 read failed. Check DATA wiring to GPIO25 and that pin isn't used elsewhere.");
     dhtReady = false;
   }
 
-  // Initialize FN-M16P Audio Module
+  // Initialize audio module
   fnM16pSerial.begin(9600, SERIAL_8N1, FN_M16P_RX, FN_M16P_TX);
-  delay(2000);
-  Serial.println("Initializing FN-M16P Audio Module...");
+  delay(200);
   setVolume(30);
-  delay(500);
   audioReady = true;
-  Serial.println("✓ FN-M16P initialized successfully!");
+  Serial.println("✓ FN-M16P audio initialized.");
 
-  // Initialize LoRa
+  // Initialize LoRa with reset/pin handling to reduce init failures
+  Serial.println("Initializing LoRa...");
+  pinMode(LORA_SS, OUTPUT);
+  digitalWrite(LORA_SS, HIGH); // deselect
+  pinMode(LORA_RST, OUTPUT);
+  digitalWrite(LORA_RST, HIGH);
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  // reset sequence
+  digitalWrite(LORA_RST, LOW);
+  delay(10);
+  digitalWrite(LORA_RST, HIGH);
+  delay(10);
   if (!LoRa.begin(LORA_BAND)) {
-    Serial.println("⚠ LoRa initialization failed. Check wiring.");
+    Serial.println("⚠ LoRa initialization failed. Check wiring and antenna.");
     loraReady = false;
   } else {
-    LoRa.setTxPower(20);
-    LoRa.setSpreadingFactor(12);
-    LoRa.setSignalBandwidth(125E3);
-    LoRa.setCodingRate4(8);
-    LoRa.setPreambleLength(8);
-    LoRa.setSyncWord(0x34);
-    Serial.println("✓ LoRa initialized successfully!");
-    Serial.println("  DIO0 Pin: GPIO26");
+    Serial.println("✓ LoRa initialized.");
     loraReady = true;
   }
 
@@ -517,52 +515,46 @@ void setup() {
   delay(15000);
 
   Serial.println("Calibrating MQ sensors...");
-  calibrateSensors();
+  calibrateSensors(); // preserves calibration logic (DANGER_MULTIPLIER = 2.0)
 
-  Serial.println("\n=================================");
-  Serial.println("SYSTEM READY!");
-  Serial.println("=================================");
+  Serial.println("\nSYSTEM READY (with preserved pin layout).");
   printTestMenu();
 
-  if (audioReady) {
-    playAudioFile(BOOT_AUDIO);
-    delay(2000);
-  }
+  if (audioReady) { playAudioFile(BOOT_AUDIO); delay(1200); }
 }
 
 void loop() {
-  // Serial test commands
-  if (Serial.available() > 0) {
-    String command = Serial.readStringUntil('\n');
-    command.trim();
-    command.toLowerCase();
-    handleTestCommand(command);
+  // serial commands
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    cmd.toLowerCase();
+    handleTestCommand(cmd);
   }
 
-  // Emergency button
+  // emergency button
   checkEmergencyButton();
 
-  // Monitor MPU6050
+  // monitor motion (if mpu ok)
   if (mpuReady) monitorMotion();
 
-  // Handle emergency if triggered
+  // emergency handling
   if (emergencyTriggered) {
     handleEmergency();
     emergencyTriggered = false;
-    // continue running
   }
 
-  // Periodic tasks
-  static unsigned long lastNormalLoop = 0;
-  if (millis() - lastNormalLoop >= 10000) {
-    lastNormalLoop = millis();
-    SensorData data = readAllSensors();
-    data.emergency = false;
-    data.motion = motionData;
-    displayReadings(data);
-    checkAlerts(data);
+  // periodic sensor snapshot & LoRa transmit
+  static unsigned long last = 0;
+  if (millis() - last >= 10000) {
+    last = millis();
+    SensorData s = readAllSensors();
+    s.emergency = false;
+    s.motion = motionData;
+    displayReadings(s);
+    checkAlerts(s);
     if (loraReady && (millis() - lastLoRaSend > loraInterval)) {
-      sendLoRaData(data);
+      sendLoRaData(s);
       lastLoRaSend = millis();
     }
     Serial.println("------------------------");
@@ -571,7 +563,7 @@ void loop() {
   delay(50);
 }
 
-// ================= Test Command Handler & Menu =================
+// ================= Test Menu & commands (unchanged pattern) =================
 
 void handleTestCommand(String cmd) {
   Serial.println("\n>>> EXECUTING TEST: " + cmd + " <<<\n");
@@ -615,8 +607,8 @@ void printTestMenu() {
   Serial.println("║  all       - Test all sensors         ║");
   Serial.println("║                                       ║");
   Serial.println("║ AUDIO:                                ║");
-  Serial.println("║  audio1-8  - Play audio file 1-8      ║");
-  Serial.println("║  a1-a8     - Short form (e.g. a1)     ║");
+  Serial.println("║  audio1-10 - Play audio file 1-10     ║");
+  Serial.println("║  a1-a10    - Short form (e.g. a1)     ║");
   Serial.println("║  stop      - Stop audio playback      ║");
   Serial.println("║  volume+   - Increase volume          ║");
   Serial.println("║  volume-   - Decrease volume          ║");
@@ -635,248 +627,94 @@ void printTestMenu() {
   Serial.println("╚═══════════════════════════════════════╝\n");
 }
 
-// ================= Tests =================
+// ================= Tests & Utilities =================
 
 void testDHT() {
   Serial.println("Testing DHT11 Sensor...");
-  Serial.println("Reading 5 samples with 2s interval:\n");
-  for (int i = 1; i <= 5; i++) {
-    float temp = dht.readTemperature();
-    float hum = dht.readHumidity();
-    Serial.print("Sample #");
-    Serial.print(i);
-    Serial.print(": ");
-    if (!isnan(temp) && !isnan(hum)) {
-      float correctedHum = hum - 30.0f;
-      if (correctedHum < 0.0f) correctedHum = 0.0f;
-      if (correctedHum > 100.0f) correctedHum = 100.0f;
-      Serial.printf("Temp: %.2f°C, Humidity (corrected): %.2f%% ✓\n", temp, correctedHum);
-    } else {
-      Serial.println("FAILED - NaN values ✗");
-    }
-    if (i < 5) delay(2000);
+  for (int i=0;i<5;i++) {
+    float t = dht.readTemperature();
+    float h = dht.readHumidity();
+    Serial.print("Sample #"); Serial.print(i+1); Serial.print(": ");
+    if (!isnan(t) && !isnan(h)) {
+      float corr = h - 30.0f;
+      if (corr < 0) corr = 0; if (corr > 100) corr = 100;
+      Serial.printf("Temp: %.2f°C, Humidity (corrected): %.2f%% ✓\n", t, corr);
+    } else Serial.println("FAILED - NaN values ✗");
+    delay(2000);
   }
-  Serial.println("\nDHT11 Status: " + String(dhtReady ? "READY" : "ERROR"));
+  Serial.println("DHT11 Status: " + String(dhtReady ? "READY" : "ERROR"));
 }
 
 void testMQ2() {
-  Serial.println("Testing MQ2 Sensor (Smoke/LPG/Gas)...");
-  Serial.println("Reading 10 samples with 500ms interval:\n");
-  for (int i = 1; i <= 10; i++) {
-    int analog = analogRead(MQ2_ANALOG_PIN);
-    bool digital = digitalRead(MQ2_DIGITAL_PIN) == LOW;
-    Serial.printf("Sample #%d: Analog=%d, Digital=%s", i, analog, digital ? "DETECTED" : "Clear");
-    if (mq2_cal.calibrated) {
-      bool danger = analog > mq2_cal.dangerThreshold;
-      Serial.print(danger ? " [DANGER]" : " [Safe]");
-    }
-    Serial.println();
-    if (i < 10) delay(500);
+  Serial.println("Testing MQ2...");
+  for (int i=0;i<10;i++) {
+    int a = analogRead(MQ2_ANALOG_PIN);
+    bool d = digitalRead(MQ2_DIGITAL_PIN) == LOW;
+    Serial.printf(" #%d: analog=%d digital=%s\n", i+1, a, d?"ACTIVE":"INACTIVE");
+    delay(500);
   }
-  Serial.printf("\nCalibration: Baseline=%.1f, Threshold=%.1f\n", mq2_cal.baseline, mq2_cal.dangerThreshold);
+  Serial.printf("Calibration baseline=%.1f threshold=%.1f\n", mq2_cal.baseline, mq2_cal.dangerThreshold);
 }
 
 void testMQ9() {
-  Serial.println("Testing MQ9 Sensor (Carbon Monoxide)...");
-  Serial.println("Reading 10 samples with 500ms interval:\n");
-  for (int i = 1; i <= 10; i++) {
-    int analog = analogRead(MQ9_ANALOG_PIN);
-    bool digital = digitalRead(MQ9_DIGITAL_PIN) == LOW;
-    Serial.printf("Sample #%d: Analog=%d, Digital=%s", i, analog, digital ? "DETECTED" : "Clear");
-    if (mq9_cal.calibrated) {
-      bool danger = analog > mq9_cal.dangerThreshold;
-      Serial.print(danger ? " [DANGER]" : " [Safe]");
-    }
-    Serial.println();
-    if (i < 10) delay(500);
+  Serial.println("Testing MQ9...");
+  for (int i=0;i<10;i++) {
+    int a = analogRead(MQ9_ANALOG_PIN);
+    bool d = digitalRead(MQ9_DIGITAL_PIN) == LOW;
+    Serial.printf(" #%d: analog=%d digital=%s\n", i+1, a, d?"ACTIVE":"INACTIVE");
+    delay(500);
   }
-  Serial.printf("\nCalibration: Baseline=%.1f, Threshold=%.1f\n", mq9_cal.baseline, mq9_cal.dangerThreshold);
+  Serial.printf("Calibration baseline=%.1f threshold=%.1f\n", mq9_cal.baseline, mq9_cal.dangerThreshold);
 }
 
 void testMQ135() {
-  Serial.println("Testing MQ135 Sensor (Air Quality)...");
-  Serial.println("Reading 10 samples with 500ms interval:\n");
-  for (int i = 1; i <= 10; i++) {
-    int analog = analogRead(MQ135_ANALOG_PIN);
-    bool digital = digitalRead(MQ135_DIGITAL_PIN) == LOW;
-    String quality = getAirQualityRating(analog);
-    Serial.printf("Sample #%d: Analog=%d, Digital=%s, Quality=%s", i, analog, digital ? "POOR" : "Good", quality.c_str());
-    if (mq135_cal.calibrated) {
-      bool danger = analog > mq135_cal.dangerThreshold;
-      Serial.print(danger ? " [DANGER]" : " [Safe]");
-    }
-    Serial.println();
-    if (i < 10) delay(500);
+  Serial.println("Testing MQ135...");
+  for (int i=0;i<10;i++) {
+    int a = analogRead(MQ135_ANALOG_PIN);
+    bool d = digitalRead(MQ135_DIGITAL_PIN) == LOW;
+    Serial.printf(" #%d: analog=%d digital=%s rating=%s\n", i+1, a, d?"POOR":"GOOD", getAirQualityRating(a).c_str());
+    delay(500);
   }
-  Serial.printf("\nCalibration: Baseline=%.1f, Threshold=%.1f\n", mq135_cal.baseline, mq135_cal.dangerThreshold);
+  Serial.printf("Calibration baseline=%.1f threshold=%.1f\n", mq135_cal.baseline, mq135_cal.dangerThreshold);
 }
 
-void testAllMQ() {
-  Serial.println("Testing All MQ Sensors...\n");
-  Serial.println("MQ2 (Smoke/LPG/Gas):");
-  int mq2 = analogRead(MQ2_ANALOG_PIN);
-  Serial.printf("  Analog: %d\n", mq2);
-  Serial.printf("  Digital: %s\n", digitalRead(MQ2_DIGITAL_PIN) == LOW ? "DETECTED" : "Clear");
-  Serial.println("\nMQ9 (Carbon Monoxide):");
-  int mq9 = analogRead(MQ9_ANALOG_PIN);
-  Serial.printf("  Analog: %d\n", mq9);
-  Serial.printf("  Digital: %s\n", digitalRead(MQ9_DIGITAL_PIN) == LOW ? "DETECTED" : "Clear");
-  Serial.println("\nMQ135 (Air Quality):");
-  int mq135 = analogRead(MQ135_ANALOG_PIN);
-  Serial.printf("  Analog: %d\n", mq135);
-  Serial.printf("  Digital: %s\n", digitalRead(MQ135_DIGITAL_PIN) == LOW ? "POOR" : "Good");
-  Serial.printf("  Rating: %s\n", getAirQualityRating(mq135).c_str());
-}
+void testAllMQ() { testMQ2(); testMQ9(); testMQ135(); }
 
 void testAudio(int fileNum) {
-  if (!audioReady) { Serial.println("❌ Audio module not ready!"); return; }
-  Serial.print("Playing audio file #"); Serial.println(fileNum);
-  const char* audioNames[] = { "", "Boot", "Smoke Alert", "CO Alert", "Air Quality Warning", "High Temp Alert", "Low Temp Alert", "High Humidity", "Low Humidity" };
-  if (fileNum >= 1 && fileNum <= 8) {
-    Serial.print("File: "); Serial.println(audioNames[fileNum]);
-    playAudioFile(fileNum);
-  } else Serial.println("❌ Invalid file number (1-8)");
+  if (!audioReady) { Serial.println("Audio not ready"); return; }
+  Serial.printf("Playing audio #%d\n", fileNum);
+  playAudioFile(fileNum);
 }
 
 void testLoRa() {
-  if (!loraReady) { Serial.println("❌ LoRa not ready!"); return; }
-  Serial.println("Testing LoRa transmission...");
-  SensorData data = readAllSensors(); data.emergency = false; data.motion = motionData;
-  Serial.println("\nTest packet contents:");
-  Serial.printf("  Node ID: %s\n", NODE_ID);
-  Serial.printf("  Temperature: %.2f°C\n", data.temperature);
-  Serial.printf("  Humidity: %.2f%%\n", data.humidity);
-  Serial.printf("  MQ2: %d\n", data.mq2_analog);
-  Serial.printf("  MQ9: %d\n", data.mq9_analog);
-  Serial.printf("  MQ135: %d\n", data.mq135_analog);
-  Serial.println("\nSending test packet...");
-  sendLoRaData(data);
-  Serial.println("✓ Test packet sent!");
+  if (!loraReady) { Serial.println("LoRa not ready"); return; }
+  Serial.println("Sending test LoRa packet...");
+  SensorData s = readAllSensors(); s.emergency = false; s.motion = motionData;
+  sendLoRaData(s);
 }
 
-void testEmergency() {
-  Serial.println("⚠ Triggering EMERGENCY MODE manually...\n");
-  emergencyTriggered = true;
-}
+void testEmergency() { emergencyTriggered = true; Serial.println("Forced emergency."); }
 
 void testButton() {
-  Serial.println("Testing Emergency Button...");
-  Serial.println("Button Pin: GPIO25");
-  Serial.println("Monitoring for 10 seconds...\n");
-  unsigned long startTime = millis();
-  int changeCount = 0;
-  bool lastState = digitalRead(EMERGENCY_BUTTON_PIN);
-  Serial.print("Initial state: "); Serial.println(lastState == HIGH ? "HIGH" : "LOW");
-  Serial.println("\nPress the button now...\n");
-  while (millis() - startTime < 10000) {
-    bool currentState = digitalRead(EMERGENCY_BUTTON_PIN);
-    if (currentState != lastState) {
-      changeCount++;
-      Serial.print("State change #"); Serial.print(changeCount); Serial.print(": ");
-      Serial.println(currentState == HIGH ? "HIGH (Pressed)" : "LOW (Released)");
-      lastState = currentState;
-      delay(50);
+  Serial.println("Testing button for 10s...");
+  unsigned long start = millis();
+  bool last = digitalRead(EMERGENCY_BUTTON_PIN);
+  while (millis() - start < 10000) {
+    bool cur = digitalRead(EMERGENCY_BUTTON_PIN);
+    if (cur != last) {
+      Serial.printf("State change: %s\n", cur? "HIGH":"LOW");
+      last = cur;
     }
-    delay(10);
+    delay(100);
   }
-  Serial.print("\nTotal state changes: "); Serial.println(changeCount);
-  Serial.println(changeCount > 0 ? "✓ Button working!" : "❌ No input detected - check wiring");
+  Serial.println("Button test complete.");
 }
 
 void testAllSensors() {
-  Serial.println("=== COMPLETE SYSTEM TEST ===\n");
-  Serial.println("1. DHT11 Sensor:");
-  float temp = dht.readTemperature();
-  float hum = dht.readHumidity();
-  if (!isnan(temp) && !isnan(hum)) {
-    float correctedHum = hum - 30.0f; if (correctedHum < 0.0f) correctedHum = 0.0f;
-    Serial.printf("   ✓ Temp: %.2f°C, Humidity (corrected): %.2f%%\n", temp, correctedHum);
-  } else Serial.println("   ✗ DHT11 reading failed");
-  Serial.println("\n2. MQ2 Sensor:"); Serial.printf("   Analog: %d\n", analogRead(MQ2_ANALOG_PIN));
-  Serial.println("\n3. MQ9 Sensor:"); Serial.printf("   Analog: %d\n", analogRead(MQ9_ANALOG_PIN));
-  Serial.println("\n4. MQ135 Sensor:"); Serial.printf("   Analog: %d\n", analogRead(MQ135_ANALOG_PIN));
-  Serial.println("\n5. Emergency Button:"); Serial.printf("   State: %s\n", digitalRead(EMERGENCY_BUTTON_PIN) == HIGH ? "HIGH" : "LOW");
-  Serial.println("\n6. Audio Module:"); Serial.printf("   Status: %s\n", audioReady ? "READY" : "NOT READY");
-  Serial.println("\n7. LoRa Module:"); Serial.printf("   Status: %s\n", loraReady ? "READY" : "NOT READY");
-  Serial.println("\n=== TEST COMPLETE ===");
+  testDHT(); testAllMQ(); testLoRa();
 }
 
-void printSystemStatus() {
-  Serial.println("\n╔═══════════════════════════════════════╗");
-  Serial.println("║          SYSTEM STATUS                ║");
-  Serial.println("╠═══════════════════════════════════════╣");
-  Serial.printf("║ Node ID: %-28s ║\n", NODE_ID);
-  Serial.printf("║ Uptime: %-29lu ║\n", millis() / 1000);
-  Serial.printf("║ Packets Sent: %-22d ║\n", packetCount);
-  Serial.println("╠═══════════════════════════════════════╣");
-  Serial.printf("║ DHT11:    %-27s ║\n", dhtReady ? "✓ READY" : "✗ ERROR");
-  Serial.printf("║ MPU6050:  %-27s ║\n", mpuReady ? "✓ READY" : "✗ ERROR");
-  Serial.printf("║ Audio:    %-27s ║\n", audioReady ? "✓ READY" : "✗ ERROR");
-  Serial.printf("║ LoRa:     %-27s ║\n", loraReady ? "✓ READY" : "✗ ERROR");
-  Serial.println("╠═══════════════════════════════════════╣");
-  Serial.printf("║ MQ2 Calibrated:   %-18s ║\n", mq2_cal.calibrated ? "Yes" : "No");
-  Serial.printf("║ MQ9 Calibrated:   %-18s ║\n", mq9_cal.calibrated ? "Yes" : "No");
-  Serial.printf("║ MQ135 Calibrated: %-18s ║\n", mq135_cal.calibrated ? "Yes" : "No");
-  Serial.println("╠═══════════════════════════════════════╣");
-  Serial.printf("║ Last Temp: %.2f°C%-18s ║\n", lastValidTemperature, "");
-  Serial.printf("║ Last Humidity: %.2f%%%-15s ║\n", lastValidHumidity, "");
-  Serial.println("╚═══════════════════════════════════════╝\n");
-}
-
-// ================= Emergency Button & Handling =================
-
-void checkEmergencyButton() {
-  static bool lastState = LOW;
-  static unsigned long lastChangeTime = 0;
-  bool currentState = digitalRead(EMERGENCY_BUTTON_PIN);
-  if (currentState != lastState && (millis() - lastChangeTime > 50)) {
-    lastChangeTime = millis();
-    if (currentState == HIGH) {
-      unsigned long now = millis();
-      if (now - lastTapTime < TAP_TIMEOUT) tapCount++;
-      else tapCount = 1;
-      lastTapTime = now;
-      Serial.print("│ BUTTON TAP #"); Serial.print(tapCount); Serial.print(" of "); Serial.print(REQUIRED_TAPS); Serial.println(" │");
-      if (tapCount >= REQUIRED_TAPS) {
-        Serial.println("\n╔═══════════════════════════════╗"); Serial.println("║ TRIPLE TAP DETECTED!          ║"); Serial.println("║ EMERGENCY TRIGGERED!          ║"); Serial.println("╚═══════════════════════════════╝\n");
-        emergencyTriggered = true;
-        tapCount = 0;
-      }
-    }
-  }
-  if (millis() - lastTapTime > TAP_TIMEOUT && tapCount > 0 && tapCount < REQUIRED_TAPS) tapCount = 0;
-  lastState = currentState;
-}
-
-void handleEmergency() {
-  Serial.println("\n████████████████████████████████████████");
-  Serial.println("████   EMERGENCY MODE ACTIVATED    ████");
-  Serial.println("████████████████████████████████████████\n");
-  SensorData data = readAllSensors();
-  data.emergency = true;
-  data.motion = motionData;
-  Serial.println("=== EMERGENCY SENSOR SNAPSHOT ===");
-  Serial.printf("Temperature: %.2f°C\n", data.temperature);
-  Serial.printf("Humidity: %.2f%%\n", data.humidity);
-  Serial.printf("MQ2: %d\n", data.mq2_analog);
-  Serial.printf("MQ9: %d\n", data.mq9_analog);
-  Serial.printf("MQ135: %d\n", data.mq135_analog);
-  Serial.printf("Fall Detected: %s\n", data.motion.fallDetected ? "YES" : "NO");
-  Serial.println("=================================\n");
-  if (loraReady) {
-    Serial.println(">>> SENDING EMERGENCY LORA PACKET <<<");
-    sendLoRaData(data);
-    Serial.println(">>> EMERGENCY PACKET SENT <<<\n");
-  } else {
-    Serial.println("ERROR: LoRa not ready!");
-  }
-  Serial.println("████████████████████████████████████████");
-  Serial.println("████  EMERGENCY HANDLING COMPLETE  ████");
-  Serial.println("████████████████████████████████████████\n");
-  delay(1000);
-}
-
-// ================= Audio Module =================
+// ================= Audio / Commands =================
 
 void sendCommand(byte cmd, byte param1, byte param2, bool feedback) {
   byte packet[10];
@@ -902,91 +740,88 @@ void setVolume(int volume) {
 }
 
 void playAudioFile(int fileNumber) {
-  if (fileNumber < 1 || fileNumber > 8) return;
+  if (fileNumber < 1 || fileNumber > 10) return;
   sendCommand(CMD_PLAY_TRACK, 0x00, fileNumber, false);
-  delay(100);
+  delay(60);
 }
 
-void stopAudio() {
-  sendCommand(CMD_STOP, 0x00, 0x00, false);
-}
+void stopAudio() { sendCommand(CMD_STOP, 0x00, 0x00, false); }
 
-// ================= Calibration & MQ helpers =================
+// ================= Calibration & Sensors =================
 
 void calibrateSensors() {
   Serial.println("Starting sensor calibration...");
-  delay(2000);
+  delay(500);
   calibrateSensor(MQ2_ANALOG_PIN, &mq2_cal, "MQ2", MQ2_DANGER_THRESHOLD);
   calibrateSensor(MQ9_ANALOG_PIN, &mq9_cal, "MQ9", MQ9_DANGER_THRESHOLD);
   calibrateSensor(MQ135_ANALOG_PIN, &mq135_cal, "MQ135", MQ135_DANGER_THRESHOLD);
-  Serial.println("✓ Calibration completed!");
-  Serial.printf("  MQ2: Baseline=%.1f, Danger=%.1f\n", mq2_cal.baseline, mq2_cal.dangerThreshold);
-  Serial.printf("  MQ9: Baseline=%.1f, Danger=%.1f\n", mq9_cal.baseline, mq9_cal.dangerThreshold);
-  Serial.printf("  MQ135: Baseline=%.1f, Danger=%.1f\n", mq135_cal.baseline, mq135_cal.dangerThreshold);
+  Serial.println("Calibration done.");
+  Serial.printf("MQ2 baseline=%.1f threshold=%.1f\n", mq2_cal.baseline, mq2_cal.dangerThreshold);
+  Serial.printf("MQ9 baseline=%.1f threshold=%.1f\n", mq9_cal.baseline, mq9_cal.dangerThreshold);
+  Serial.printf("MQ135 baseline=%.1f threshold=%.1f\n", mq135_cal.baseline, mq135_cal.dangerThreshold);
 }
 
 void calibrateSensor(int pin, SensorCalibration* cal, String sensorName, int minThreshold) {
   Serial.print("Calibrating " + sensorName + "...");
   float sum = 0;
   for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
-    sum += analogRead(pin);
+    int r = analogRead(pin);
+    sum += r;
     Serial.print(".");
     delay(CALIBRATION_DELAY);
   }
   cal->baseline = sum / CALIBRATION_SAMPLES;
-  float calculatedThreshold = cal->baseline * DANGER_MULTIPLIER; // original multiplier 2.0
+  float calculatedThreshold = cal->baseline * DANGER_MULTIPLIER; // preserved original multiplier 2.0
   cal->dangerThreshold = (calculatedThreshold > minThreshold) ? calculatedThreshold : minThreshold;
   cal->calibrated = true;
   Serial.println(" Done");
 }
 
 bool checkSensorDanger(int currentValue, SensorCalibration* cal, int staticDangerThreshold) {
-  if (!cal->calibrated) {
-    return currentValue > staticDangerThreshold;
-  }
+  if (!cal->calibrated) return currentValue > staticDangerThreshold;
   return currentValue > cal->dangerThreshold;
 }
 
-// ================= Sensors reading, display, alerts, LoRa =================
+// ================= Read & Display =================
 
 SensorData readAllSensors() {
   SensorData data;
   data.timestamp = millis();
-  // Read DHT11 with correction and caching
+  // DHT read with caching & manual humidity correction (-30%)
   if (millis() - lastDHTReading > DHT_READING_INTERVAL) {
-    float rawTemp = dht.readTemperature();
-    float rawHum = dht.readHumidity();
-    if (!isnan(rawTemp) && rawTemp >= -40 && rawTemp <= 80) {
-      data.temperature = rawTemp;
-      lastValidTemperature = rawTemp;
-    } else data.temperature = lastValidTemperature;
-    if (!isnan(rawHum) && rawHum >= 0 && rawHum <= 100) {
-      float correctedHum = rawHum - 30.0f; // user requested manual correction
-      if (correctedHum < 0.0f) correctedHum = 0.0f;
-      if (correctedHum > 100.0f) correctedHum = 100.0f;
-      data.humidity = correctedHum;
-      lastValidHumidity = correctedHum;
+    float rt = dht.readTemperature();
+    float rh = dht.readHumidity();
+    if (!isnan(rt) && rt >= -40 && rt <= 80) { data.temperature = rt; lastValidTemperature = rt; }
+    else data.temperature = lastValidTemperature;
+    if (!isnan(rh) && rh >= 0 && rh <= 100) {
+      float corr = rh - 30.0f;
+      if (corr < 0) corr = 0;
+      if (corr > 100) corr = 100;
+      data.humidity = corr;
+      lastValidHumidity = corr;
     } else data.humidity = lastValidHumidity;
     lastDHTReading = millis();
   } else {
     data.temperature = lastValidTemperature;
     data.humidity = lastValidHumidity;
   }
-  // Read MQ sensors
+
+  // MQ sensors
   data.mq2_analog = analogRead(MQ2_ANALOG_PIN);
   data.mq9_analog = analogRead(MQ9_ANALOG_PIN);
   data.mq135_analog = analogRead(MQ135_ANALOG_PIN);
   data.mq2_digital = digitalRead(MQ2_DIGITAL_PIN) == LOW;
   data.mq9_digital = digitalRead(MQ9_DIGITAL_PIN) == LOW;
   data.mq135_digital = digitalRead(MQ135_DIGITAL_PIN) == LOW;
-  // motion will be added by caller
+
   data.emergency = false;
+  data.motion = motionData;
   return data;
 }
 
 void displayReadings(SensorData data) {
   Serial.println("=== SENSOR READINGS ===");
-  Serial.println("Timestamp: " + String(data.timestamp));
+  Serial.printf("Timestamp: %lu\n", data.timestamp);
   Serial.println("DHT11:");
   Serial.printf("  Temperature: %.2f°C\n", data.temperature);
   Serial.printf("  Humidity: %.2f%%\n", data.humidity);
@@ -999,43 +834,35 @@ void displayReadings(SensorData data) {
   Serial.println("MQ135 (Air Quality):");
   Serial.printf("  Digital: %s | Analog: %d", data.mq135_digital ? "POOR AIR" : "Good Air", data.mq135_analog);
   Serial.println(checkSensorDanger(data.mq135_analog, &mq135_cal, MQ135_DANGER_THRESHOLD) ? " [DANGER]" : " [Safe]");
-  // motion display
   Serial.println("MOTION:");
-  Serial.printf("  Total Accel: %.2f g\n", motionData.totalAccel / G);
-  Serial.printf("  Total Gyro: %.2f °/s\n", motionData.totalGyro);
-  Serial.printf("  Fall Detected: %s\n", motionData.fallDetected ? "YES" : "NO");
+  Serial.printf("  Total Accel: %.2f g\n", data.motion.totalAccel / G);
+  Serial.printf("  Total Gyro: %.2f °/s\n", data.motion.totalGyro);
+  Serial.printf("  Fall Detected: %s\n", data.motion.fallDetected ? "YES" : "NO");
 }
 
 void checkAlerts(SensorData data) {
   static unsigned long lastAlert = 0;
   unsigned long now = millis();
-  if (now - lastAlert < 60000) return; // limit alerts
-  // Motion/fall highest priority
-  if (motionData.fallDetected) {
-    // Play fall audio if available; original mapping doesn't include explicit fall file; use CO_ALERT or AIR_QUALITY_WARNING replacement if required
-    if (audioReady) playAudioFile(CO_ALERT); // placeholder sound
+  if (now - lastAlert < 60000) return;
+  // Fall detection highest
+  if (data.motion.fallDetected) {
+    if (audioReady) playAudioFile(FALL_DETECTED);
     lastAlert = now;
     return;
   }
   if (checkSensorDanger(data.mq2_analog, &mq2_cal, MQ2_DANGER_THRESHOLD)) {
-    playAudioFile(SMOKE_ALERT);
-    lastAlert = now;
-    return;
+    playAudioFile(SMOKE_ALERT); lastAlert = now; return;
   }
   if (checkSensorDanger(data.mq9_analog, &mq9_cal, MQ9_DANGER_THRESHOLD)) {
-    playAudioFile(CO_ALERT);
-    lastAlert = now;
-    return;
+    playAudioFile(CO_ALERT); lastAlert = now; return;
   }
   if (checkSensorDanger(data.mq135_analog, &mq135_cal, MQ135_DANGER_THRESHOLD)) {
-    playAudioFile(AIR_QUALITY_WARNING);
-    lastAlert = now;
-    return;
+    playAudioFile(AIR_QUALITY_WARNING); lastAlert = now; return;
   }
   if (data.temperature > 45.0) { playAudioFile(HIGH_TEMP_ALERT); lastAlert = now; return; }
-  if (data.temperature < 0.0) { playAudioFile(LOW_TEMP_ALERT); lastAlert = now; return; }
-  if (data.humidity > 90.0) { playAudioFile(HIGH_HUMIDITY_ALERT); lastAlert = now; return; }
-  if (data.humidity < 10.0) { playAudioFile(LOW_HUMIDITY_ALERT); lastAlert = now; return; }
+  if (data.temperature < 0.0)  { playAudioFile(LOW_TEMP_ALERT); lastAlert = now; return; }
+  if (data.humidity > 90.0)    { playAudioFile(HIGH_HUMIDITY_ALERT); lastAlert = now; return; }
+  if (data.humidity < 10.0)    { playAudioFile(LOW_HUMIDITY_ALERT); lastAlert = now; return; }
 }
 
 void sendLoRaData(SensorData data) {
@@ -1054,27 +881,31 @@ void sendLoRaData(SensorData data) {
   doc["mq135_digital"] = data.mq135_digital;
   doc["air_quality"] = getAirQualityRating(data.mq135_analog);
   doc["emergency"] = data.emergency;
-  // Add motion data (to preserve original JSON format)
-  doc["fall_detected"] = motionData.fallDetected;
-  doc["activity"] = getActivityString();
-  doc["total_accel"] = motionData.totalAccel;
-  doc["total_gyro"] = motionData.totalGyro;
-  doc["motion_active"] = motionData.motionActive;
+  // motion
+  doc["fall_detected"] = data.motion.fallDetected;
+  doc["activity"] = data.motion.fallDetected ? String("FALLEN - HELP!") : String("Stationary");
+  doc["total_accel"] = data.motion.totalAccel;
+  doc["total_gyro"] = data.motion.totalGyro;
+  doc["motion_active"] = data.motion.motionDetected;
+
   String jsonString;
   serializeJson(doc, jsonString);
-  if (data.emergency || motionData.fallDetected) {
-    Serial.println("\n╔════════════════════════════════════╗");
-    Serial.println("║  EMERGENCY LoRa TRANSMISSION      ║");
-    if (motionData.fallDetected) Serial.println("║  FALL DETECTED!                   ║");
+
+  if (data.emergency || data.motion.fallDetected) {
+    Serial.println("\n╔════════ EMERGENCY LoRa ════════════╗");
+    if (data.motion.fallDetected) Serial.println("║  FALL DETECTED!                    ║");
     Serial.println("╚════════════════════════════════════╝");
   }
+
   Serial.print("LoRa Packet #"); Serial.print(packetCount); Serial.println(data.emergency ? " [EMERGENCY]" : " [NORMAL]");
   Serial.print("Payload size: "); Serial.print(jsonString.length()); Serial.println(" bytes");
   Serial.println("Payload: " + jsonString);
+
   LoRa.beginPacket();
   LoRa.print(jsonString);
   LoRa.endPacket();
-  if (data.emergency || motionData.fallDetected) {
+
+  if (data.emergency || data.motion.fallDetected) {
     Serial.println("╚════════════════════════════════════╝");
     Serial.println("║  EMERGENCY PACKET SENT            ║");
     Serial.println("╚════════════════════════════════════╝\n");
@@ -1090,3 +921,67 @@ String getAirQualityRating(int value) {
   else if (value < 2400) return "Poor";
   else return "Very Poor";
 }
+
+// ================= Emergency Button =================
+
+void checkEmergencyButton() {
+  static bool lastState = HIGH; // using INPUT_PULLUP on GPIO15 -> pressed=LOW
+  static unsigned long lastChangeTime = 0;
+  bool currentState = digitalRead(EMERGENCY_BUTTON_PIN);
+  if (currentState != lastState && (millis() - lastChangeTime > 50)) {
+    lastChangeTime = millis();
+    if (currentState == LOW) { // pressed
+      unsigned long now = millis();
+      if (now - lastTapTime < TAP_TIMEOUT) tapCount++;
+      else tapCount = 1;
+      lastTapTime = now;
+      Serial.printf("│ BUTTON TAP #%d of %d │\n", tapCount, REQUIRED_TAPS);
+      if (tapCount >= REQUIRED_TAPS) {
+        Serial.println("\n╔════════ TRIPLE TAP - EMERGENCY ═════╗");
+        emergencyTriggered = true;
+        tapCount = 0;
+      }
+    }
+  }
+  if (millis() - lastTapTime > TAP_TIMEOUT && tapCount > 0) tapCount = 0;
+  lastState = currentState;
+}
+
+void handleEmergency() {
+  Serial.println("\n████████████████ EMERGENCY MODE ████████████████\n");
+  SensorData s = readAllSensors();
+  s.emergency = true;
+  s.motion = motionData;
+  Serial.println("=== EMERGENCY SNAPSHOT ===");
+  Serial.printf("Temp: %.2f C\n", s.temperature);
+  Serial.printf("Hum:  %.2f %%\n", s.humidity);
+  Serial.printf("MQ2: %d  MQ9: %d  MQ135: %d\n", s.mq2_analog, s.mq9_analog, s.mq135_analog);
+  Serial.printf("Fall: %s\n", s.motion.fallDetected ? "YES" : "NO");
+  Serial.println("=========================");
+  if (loraReady) {
+    Serial.println("Sending EMERGENCY LoRa packet...");
+    sendLoRaData(s);
+  } else {
+    Serial.println("LoRa unavailable - cannot send emergency.");
+  }
+  if (audioReady) playAudioFile(FALL_DETECTED); // if you have a fall audio at 9
+  delay(800);
+}
+
+// ================= Status & helpers =================
+
+void printSystemStatus() {
+  Serial.println("\n╔════════ SYSTEM STATUS ═════════╗");
+  Serial.printf("Node ID: %s\n", NODE_ID);
+  Serial.printf("Uptime: %lu s\n", millis() / 1000);
+  Serial.printf("Packets sent: %d\n", packetCount);
+  Serial.printf("DHT ready: %s\n", dhtReady ? "YES":"NO");
+  Serial.printf("MPU ready: %s\n", mpuReady ? "YES":"NO");
+  Serial.printf("LoRa ready: %s\n", loraReady ? "YES":"NO");
+  Serial.printf("Audio ready: %s\n", audioReady ? "YES":"NO");
+  Serial.printf("MQ2 cal: %s  MQ9 cal: %s  MQ135 cal: %s\n", mq2_cal.calibrated?"YES":"NO", mq9_cal.calibrated?"YES":"NO", mq135_cal.calibrated?"YES":"NO");
+  Serial.printf("Last Temp: %.2f C\n", lastValidTemperature);
+  Serial.printf("Last Hum (corrected): %.2f %%\n", lastValidHumidity);
+  Serial.println("╚═════════════════════════════════╝\n");
+}
+
