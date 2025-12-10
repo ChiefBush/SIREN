@@ -71,7 +71,7 @@ typedef struct __attribute__((packed)) {
 
 // ========================= Peer MAC addresses (from mac_addresses.txt) =============
 // Edge Node MAC: 28:56:2f:49:56:ac
-uint8_t edgeNodeMac[6] = {0x28, 0x56, 0x2F, 0x49, 0x56, 0xAC};
+uint8_t edgeNodeMac[6] = {0x28, 0x56, 0x2F, 0x49, 0x56, 0xAC}; 
 
 // ========================= Display / connection state =========================
 bool displayingMessage = false;
