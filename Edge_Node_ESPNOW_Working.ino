@@ -1,7 +1,9 @@
-//contents:
-// edge_node_espnow.ino
-// Edge Node with ESP-NOW integration (for wristband vitals & text relay)
-// Preserves original functionality and fixes compile issues reported.
+/*
+  edge_node_espnow.ino
+  Edge Node with ESP-NOW integration for wristband vitals & text relay.
+  Full, self-contained sketch. Make sure to copy the entire file into Arduino IDE,
+  no extra lines above the first #include.
+*/
 
 #include <Wire.h>
 #include <HardwareSerial.h>
@@ -12,6 +14,7 @@
 #include <math.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_wifi.h>
 
 // ========================= MPU6050 I2C Register Definitions =========================
 #define MPU6050_ADDR 0x68
@@ -111,13 +114,13 @@ typedef struct __attribute__((packed)) {
   uint8_t bpm;          // 0..255
   uint8_t spo2;         // 0..100
   uint8_t finger;       // 0/1
-  uint32_t timestamp;   // millis()
+  uint32_t timestamp;
 } espnow_vitals_t;
 
 typedef struct __attribute__((packed)) {
   uint8_t msgType;        // MSG_TYPE_TEXT
   uint32_t messageId;
-  uint8_t length;         // number of bytes used in message
+  uint8_t length;
   char text[MAX_TEXT_LEN];
 } espnow_text_t;
 
@@ -135,8 +138,8 @@ struct SensorCalibration {
 };
 
 struct MotionData {
-  float totalAccel; // m/s^2
-  float totalGyro;  // deg/s
+  float totalAccel;
+  float totalGyro;
   bool fallDetected;
   bool impactDetected;
   bool motionDetected;
@@ -186,7 +189,7 @@ volatile bool emergencyTriggered = false;
 // Motion variables
 MotionData motionData = {0};
 
-// MPU internals preserved...
+// MPU internals
 const float G = 9.80665f;
 const float FREE_FALL_G_THRESHOLD = 0.6f;
 const unsigned long FREE_FALL_MIN_MS = 120;
@@ -212,20 +215,20 @@ struct WristbandStatus {
   uint8_t bpm;
   uint8_t spo2;
   bool fingerDetected;
-  unsigned long lastUpdate; // millis()
+  unsigned long lastUpdate;
   bool connected;
   uint32_t lastMessageId;
   bool messageAcknowledged;
 } wristbandStatus = {0,0,false,0,false,0,false};
 
-// Wristband MAC address (from mac_addresses.txt)
-uint8_t wristbandMac[6] = {0x0C, 0x4E, 0xA0, 0x66, 0xB2, 0x78};
+// Wristband MAC address (update if different)
+uint8_t wristbandMac[6] = {0x0C, 0x4E, 0xA0, 0x66, 0xB2, 0x78}; 
 
 bool espnowReady = false;
 esp_err_t lastEspNowSendStatus = ESP_OK;
 uint32_t outgoingMessageCounter = 1;
 
-// Forward declarations
+// ========================= Forward declarations =========================
 void printTestMenu();
 void handleTestCommand(String cmd);
 void testDHT();
@@ -264,16 +267,16 @@ void readMPU6050Data(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t
 void monitorMotion();
 void detectFallAndHandle();
 
-// ESP-NOW functions
+// ESP-NOW
 void initESPNOW();
 void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len);
-// Note: Use callback signature expected by toolchain (some esp32 cores expect wifi_tx_info_t*)
 void onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status);
 bool sendTextToWristband(const String &message);
 void checkWristbandConnection();
 void receiveLoRaMessages();
 
-// --------------------------- I2C helpers ---------------------------
+// -------------------------- Implementations --------------------------
+// I2C recovery & safeWire
 bool i2cBusRecover() {
   Wire.end();
   delay(10);
@@ -343,7 +346,7 @@ bool safeWireWrite(uint8_t addr, uint8_t reg, uint8_t val, int retries) {
   return false;
 }
 
-// --------------------------- MPU init/read preserved ---------------------------
+// MPU init
 bool initMPU6050() {
   if (millis() - lastI2CAttempt < 500) return false;
   lastI2CAttempt = millis();
@@ -366,13 +369,9 @@ bool initMPU6050() {
   }
   Serial.printf("MPU6050 WHO_AM_I = 0x%02X (after %d attempts)\n", who, ok ? 1 : 5);
   if (ok && who != 0x00) {
-    if (who == 0x68 || who == 0x69) {
-      Serial.println("✓ MPU6050 genuine chip detected");
-    } else if (who == 0x72) {
-      Serial.println("✓ MPU6050 clone detected (0x72)");
-    } else {
-      Serial.printf("⚠ Unexpected WHO_AM_I (0x%02X) - attempting initialization anyway\n", who);
-    }
+    if (who == 0x68 || who == 0x69) Serial.println("✓ MPU6050 genuine chip detected");
+    else if (who == 0x72) Serial.println("✓ MPU6050 clone detected (0x72)");
+    else Serial.printf("⚠ Unexpected WHO_AM_I (0x%02X) - attempting initialization anyway\n", who);
   } else {
     Serial.println("⚠ WHO_AM_I read failed - trying alternative initialization...");
     uint8_t accelBuf[6];
@@ -393,31 +392,22 @@ bool initMPU6050() {
     }
   }
   Serial.println("Configuring MPU6050 with clone-friendly settings...");
-  if (!safeWireWrite(MPU6050_ADDR, PWR_MGMT_1, 0x01, 5)) {
-    Serial.println("✗ Failed to set power management");
-    return false;
-  }
+  if (!safeWireWrite(MPU6050_ADDR, PWR_MGMT_1, 0x01, 5)) { Serial.println("✗ Failed to set power management"); return false; }
   delay(100);
-  if (!safeWireWrite(MPU6050_ADDR, 0x19, 0x07, 5)) {
-    Serial.println("  ⚠ Failed to set sample rate (continuing anyway)");
-  } else Serial.println("  ✓ Sample rate configured");
+  if (!safeWireWrite(MPU6050_ADDR, 0x19, 0x07, 5)) Serial.println("  ⚠ Failed to set sample rate (continuing anyway)");
+  else Serial.println("  ✓ Sample rate configured");
   delay(50);
-  if (!safeWireWrite(MPU6050_ADDR, CONFIG, 0x06, 5)) {
-    Serial.println("  ⚠ Failed to set DLPF (continuing anyway)");
-  } else Serial.println("  ✓ DLPF configured");
+  if (!safeWireWrite(MPU6050_ADDR, CONFIG, 0x06, 5)) Serial.println("  ⚠ Failed to set DLPF (continuing anyway)");
+  else Serial.println("  ✓ DLPF configured");
   delay(50);
-  if (!safeWireWrite(MPU6050_ADDR, GYRO_CONFIG, 0x08, 5)) {
-    Serial.println("  ⚠ Failed to set gyro config (continuing anyway)");
-  } else Serial.println("  ✓ Gyroscope configured (±500°/s)");
+  if (!safeWireWrite(MPU6050_ADDR, GYRO_CONFIG, 0x08, 5)) Serial.println("  ⚠ Failed to set gyro config (continuing anyway)");
+  else Serial.println("  ✓ Gyroscope configured (±500°/s)");
   delay(50);
-  if (!safeWireWrite(MPU6050_ADDR, ACCEL_CONFIG, 0x10, 5)) {
-    Serial.println("  ⚠ Failed to set accel config (continuing anyway)");
-  } else Serial.println("  ✓ Accelerometer configured (±8g)");
+  if (!safeWireWrite(MPU6050_ADDR, ACCEL_CONFIG, 0x10, 5)) Serial.println("  ⚠ Failed to set accel config (continuing anyway)");
+  else Serial.println("  ✓ Accelerometer configured (±8g)");
   delay(100);
   uint8_t testBuf[1];
-  if (safeWireRequest(MPU6050_ADDR, PWR_MGMT_1, testBuf, 1, 3)) {
-    Serial.printf("  ✓ Verification: PWR_MGMT_1 = 0x%02X\n", testBuf[0]);
-  }
+  if (safeWireRequest(MPU6050_ADDR, PWR_MGMT_1, testBuf, 1, 3)) Serial.printf("  ✓ Verification: PWR_MGMT_1 = 0x%02X\n", testBuf[0]);
   Serial.println("✓ MPU6050 initialization complete!");
   return true;
 }
@@ -436,7 +426,7 @@ void readMPU6050Data(int16_t *ax, int16_t *ay, int16_t *az, int16_t *gx, int16_t
   *gz = (int16_t)((buf[12]<<8) | buf[13]);
 }
 
-// Motion monitoring & fall detection preserved (omitted here for brevity in this snippet - original logic retained)
+// Motion monitor & fall detection
 void monitorMotion() {
   if (!mpuReady) return;
   int16_t axr=0, ayr=0, azr=0, gxr=0, gyr=0, gzr=0;
@@ -454,14 +444,11 @@ void monitorMotion() {
   if (fabs(motionData.totalAccel - accelFiltered) > 0.2f * G || motionData.totalGyro > 25.0f) {
     motionData.lastMotionTime = millis();
     motionData.motionDetected = true;
-  } else {
-    motionData.motionDetected = false;
-  }
+  } else motionData.motionDetected = false;
   detectFallAndHandle();
 }
 
 void detectFallAndHandle() {
-  // Implementation preserved exactly from prior version (keeps behavior and logging)
   unsigned long now = millis();
   float totG = motionData.totalAccel / G;
   float totGyro = motionData.totalGyro;
@@ -473,19 +460,11 @@ void detectFallAndHandle() {
       impactSeen = false;
       motionData.impactDetected = false;
     }
-  } else {
-    if (inFreeFall) inFreeFall = false;
-  }
+  } else { if (inFreeFall) inFreeFall = false; }
   if (fallInProgress && !impactSeen) {
     if (totG >= IMPACT_G_THRESHOLD || totGyro >= ROTATION_IMPACT_THRESHOLD) {
-      impactSeen = true;
-      impactTime = now;
-      motionData.impactDetected = true;
-    } else if (now - fallStartTime > IMPACT_WINDOW_MS) {
-      fallInProgress = false;
-      impactSeen = false;
-      motionData.impactDetected = false;
-    }
+      impactSeen = true; impactTime = now; motionData.impactDetected = true;
+    } else if (now - fallStartTime > IMPACT_WINDOW_MS) { fallInProgress = false; impactSeen = false; motionData.impactDetected = false; }
   }
   if (impactSeen) {
     float accelVariationG = fabs((motionData.totalAccel / G) - 1.0f);
@@ -500,90 +479,92 @@ void detectFallAndHandle() {
         Serial.println("╚════════════════════════════════════╝");
         Serial.printf("Acceleration: %.2f g\n", motionData.totalAccel / G);
         Serial.printf("Gyroscope: %.2f °/s\n", motionData.totalGyro);
-        fallInProgress = false;
-        impactSeen = false;
-        stationarySince = 0;
+        fallInProgress = false; impactSeen = false; stationarySince = 0;
       }
     } else {
       stationarySince = 0;
-      if (now - impactTime > IMPACT_WINDOW_MS) {
-        fallInProgress = false; impactSeen = false; stationarySince = 0; motionData.impactDetected = false;
-      }
+      if (now - impactTime > IMPACT_WINDOW_MS) { fallInProgress = false; impactSeen = false; stationarySince = 0; motionData.impactDetected = false; }
     }
   }
-
-  static float lastTotalAccel = G;
-  static float lastTotalGyro = 0.0f;
-  float accelDeltaG = fabs((motionData.totalAccel - lastTotalAccel) / G);
-  float gyroDelta = fabs(motionData.totalGyro - lastTotalGyro);
-  if (!motionData.fallDetected) {
-    if (accelDeltaG > 2.5f && (motionData.totalAccel / G) > 2.0f) {
-      unsigned long t0 = millis();
-      bool remainedStationary = true;
-      while (millis() - t0 < STATIONARY_CONFIRM_MS) {
-        if (motionData.motionDetected) { remainedStationary = false; break; }
-        delay(40);
-      }
-      if (remainedStationary) {
-        motionData.fallDetected = true;
-        emergencyTriggered = true;
-        if (audioReady) playAudioFile(FALL_DETECTED);
-        Serial.println("\n╔════════════════════════════════════╗");
-        Serial.println("║    FALL CONFIRMED - SUDDEN IMPACT  ║");
-        Serial.println("╚════════════════════════════════════╝");
-      }
-    } else if (gyroDelta > 300.0f && motionData.totalGyro > 400.0f) {
-      unsigned long t0 = millis();
-      bool remainedStationary = true;
-      while (millis() - t0 < STATIONARY_CONFIRM_MS) {
-        if (motionData.motionDetected) { remainedStationary = false; break; }
-        delay(40);
-      }
-      if (remainedStationary) {
-        motionData.fallDetected = true;
-        emergencyTriggered = true;
-        if (audioReady) playAudioFile(FALL_DETECTED);
-        Serial.println("\n╔════════════════════════════════════╗");
-        Serial.println("║    FALL CONFIRMED - ROTATION SPIKE ║");
-        Serial.println("╚════════════════════════════════════╝");
-      }
-    }
-  }
-  lastTotalAccel = motionData.totalAccel;
-  lastTotalGyro = motionData.totalGyro;
 }
 
-// --------------------------- Setup & Loop ---------------------------
+// Air Quality Rating function
+String getAirQualityRating(int value) {
+  if (value < 800) return "Excellent";
+  else if (value < 1200) return "Good";
+  else if (value < 1800) return "Moderate";
+  else if (value < 2400) return "Poor";
+  else return "Very Poor";
+}
+
+// Emergency Button handler
+void checkEmergencyButton() {
+  static bool lastState = HIGH; // using INPUT_PULLUP -> HIGH when released
+  static unsigned long lastChangeTime = 0;
+  bool currentState = digitalRead(EMERGENCY_BUTTON_PIN);
+  if (currentState != lastState && (millis() - lastChangeTime > 50)) {
+    lastChangeTime = millis();
+    if (currentState == LOW) { // pressed
+      unsigned long now = millis();
+      if (now - lastTapTime < TAP_TIMEOUT) tapCount++;
+      else tapCount = 1;
+      lastTapTime = now;
+      Serial.printf("BUTTON TAP #%d/%d\n", tapCount, REQUIRED_TAPS);
+      if (tapCount >= REQUIRED_TAPS) {
+        Serial.println("TRIPLE TAP - EMERGENCY TRIGGERED");
+        emergencyTriggered = true;
+        tapCount = 0;
+      }
+    }
+  }
+  if (millis() - lastTapTime > TAP_TIMEOUT && tapCount > 0) tapCount = 0;
+  lastState = currentState;
+}
+
+// Emergency Handler function
+void handleEmergency() {
+  Serial.println("\n████████ EMERGENCY MODE █████████");
+  SensorData s = readAllSensors();
+  s.emergency = true;
+  s.motion = motionData;
+  Serial.println("EMERGENCY SNAPSHOT:");
+  Serial.printf(" Temp: %.2f C  Hum: %.2f %%\n", s.temperature, s.humidity);
+  Serial.printf(" MQ2:%d MQ9:%d MQ135:%d\n", s.mq2_analog, s.mq9_analog, s.mq135_analog);
+  Serial.printf(" Fall: %s\n", s.motion.fallDetected ? "YES":"NO");
+  if (loraReady) sendLoRaData(s); else Serial.println("LoRa not ready.");
+  if (audioReady) playAudioFile(FALL_DETECTED);
+  delay(800);
+}
+
+// -------------------------- Setup & Loop --------------------------
 void setup() {
   Serial.begin(115200);
   delay(800);
-  Serial.println("\n\n=================================");
-  Serial.println("ESP32 Multi-Sensor System - MPU6050 Clone WHO_AM_I Fix + ESP-NOW");
+  Serial.println("\n\nESP32 Multi-Sensor System - MPU6050 Clone WHO_AM_I Fix + ESP-NOW");
   Serial.println("=================================");
 
-  // Initialize WiFi STA for ESP-NOW
+  // CRITICAL: Initialize WiFi properly BEFORE ESP-NOW
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);  // Changed from true to false
+  delay(100);
+  WiFi.begin();
+  delay(100);
 
-  // Initialize ESP-NOW early
   initESPNOW();
+  delay(200); 
 
-  // Initialize I2C
   Wire.begin(MPU6050_SDA, MPU6050_SCL);
   Wire.setClock(100000);
   pinMode(MPU6050_SDA, INPUT_PULLUP);
   pinMode(MPU6050_SCL, INPUT_PULLUP);
 
-  // MQ digital pins
   pinMode(MQ2_DIGITAL_PIN, INPUT);
   pinMode(MQ9_DIGITAL_PIN, INPUT);
   pinMode(MQ135_DIGITAL_PIN, INPUT);
 
-  // Emergency button
   pinMode(EMERGENCY_BUTTON_PIN, INPUT_PULLUP);
   Serial.printf("Emergency button: GPIO%d (INPUT_PULLUP). Press => LOW\n", EMERGENCY_BUTTON_PIN);
 
-  // MPU INT pin
   pinMode(MPU6050_INT, INPUT);
 
   Serial.println("\n--- Initializing MPU6050 ---");
@@ -597,7 +578,6 @@ void setup() {
     accelFiltered = G;
   }
 
-  // DHT11 initialization
   Serial.println("\nInitializing DHT11 sensor...");
   dht.begin();
   delay(1500);
@@ -623,14 +603,12 @@ void setup() {
     dhtReady = false;
   }
 
-  // Audio init
   fnM16pSerial.begin(9600, SERIAL_8N1, FN_M16P_RX, FN_M16P_TX);
   delay(200);
   setVolume(30);
   audioReady = true;
   Serial.println("✓ Audio module initialized.");
 
-  // LoRa init
   Serial.println("Initializing LoRa...");
   pinMode(LORA_SS, OUTPUT);
   digitalWrite(LORA_SS, HIGH);
@@ -668,19 +646,15 @@ void loop() {
     handleTestCommand(cmd);
   }
 
-  // emergency button
   checkEmergencyButton();
 
-  // monitor motion
   if (mpuReady) monitorMotion();
 
-  // emergency handling
   if (emergencyTriggered) {
     handleEmergency();
     emergencyTriggered = false;
   }
 
-  // receive LoRa
   if (loraReady) receiveLoRaMessages();
 
   static unsigned long lastNormal = 0;
@@ -699,12 +673,10 @@ void loop() {
   }
 
   checkWristbandConnection();
-
   delay(50);
 }
 
-// ========================= Test commands & helpers (preserved) =========================
-
+// ---------------- Test commands & helpers ----------------
 void printTestMenu() {
   Serial.println("\n╔═══════════════════════════════════════╗");
   Serial.println("║         TEST COMMANDS MENU            ║");
@@ -728,8 +700,7 @@ void handleTestCommand(String cmd) {
   else if (cmd.startsWith("audio")) {
     int n = cmd.substring(5).toInt();
     if (n >= 1 && n <= 10) testAudio(n);
-  }
-  else if (cmd == "stop") { stopAudio(); Serial.println("Audio stopped."); }
+  } else if (cmd == "stop") { stopAudio(); Serial.println("Audio stopped."); }
   else if (cmd == "volume+") { setVolume(25); Serial.println("Volume 25"); }
   else if (cmd == "volume-") { setVolume(15); Serial.println("Volume 15"); }
   else if (cmd == "lora") testLoRa();
@@ -844,7 +815,7 @@ void testAllSensors() {
   testLoRa();
 }
 
-// --------------------------- I2C Scanner ---------------------------
+// ---------------- System status and misc helpers ----------------
 void scanI2CDevices() {
   Serial.println("\n=== I2C Device Scanner ===");
   Serial.println("Scanning I2C bus (0x00 to 0x7F)...");
@@ -873,7 +844,6 @@ void scanI2CDevices() {
   Serial.println("=========================\n");
 }
 
-// --------------------------- Audio control ---------------------------
 void sendCommand(byte cmd, byte param1, byte param2, bool feedback) {
   byte packet[10];
   packet[0] = FRAME_START;
@@ -907,7 +877,6 @@ void stopAudio() {
   sendCommand(CMD_STOP, 0x00, 0x00, false);
 }
 
-// --------------------------- Calibration ---------------------------
 void calibrateSensors() {
   Serial.println("Starting sensor calibration...");
   delay(500);
@@ -933,13 +902,11 @@ void calibrateSensor(int pin, SensorCalibration* cal, String sensorName, int min
   Serial.println(" Done");
 }
 
-// --------------------------- Sensor danger check ---------------------------
 bool checkSensorDanger(int currentValue, SensorCalibration* cal, int staticDangerThreshold) {
   if (!cal->calibrated) return currentValue >= staticDangerThreshold;
   return currentValue >= cal->dangerThreshold;
 }
 
-// --------------------------- Sensors reading/display/alerts/LoRa ---------------------------
 SensorData readAllSensors() {
   SensorData data;
   data.timestamp = millis();
@@ -1022,10 +989,7 @@ void sendLoRaData(SensorData data) {
   doc["wristband_connected"] = wristbandStatus.connected ? 1 : 0;
   char payload[512];
   size_t n = serializeJson(doc, payload, sizeof(payload));
-  if (!loraReady) {
-    Serial.println("LoRa not ready - cannot send");
-    return;
-  }
+  if (!loraReady) { Serial.println("LoRa not ready - cannot send"); return; }
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
@@ -1033,61 +997,77 @@ void sendLoRaData(SensorData data) {
   Serial.printf("LoRa packet #%d sent (%d bytes): %s\n", packetCount, (int)n, payload);
 }
 
-String getAirQualityRating(int value) {
-  if (value < 300) return "GOOD";
-  if (value < 700) return "MODERATE";
-  if (value < 1500) return "POOR";
-  return "HAZARD";
-}
-
-void handleEmergency() {
-  Serial.println("!!! EMERGENCY TRIGGERED !!!");
-  if (audioReady) playAudioFile(FALL_DETECTED);
-  SensorData d = readAllSensors();
-  d.emergency = true;
-  d.motion = motionData;
-  if (loraReady) sendLoRaData(d);
-}
-
-// --------------------------- ESP-NOW (Edge Node) ---------------------------
-
+// ---------------- ESP-NOW Implementation ----------------
 void initESPNOW() {
+  // Ensure WiFi is properly initialized first
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false);
+  delay(100);
+  WiFi.begin();
+  delay(100);
+  
+  int channel = 1;
+  esp_err_t cherr = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
+  if (cherr == ESP_OK) {
+    Serial.printf("✓ WiFi channel set to %d for ESP-NOW\n", channel);
+  } else {
+    Serial.printf("⚠ Failed to set WiFi channel (%d) err=%d\n", channel, (int)cherr);
+  }
+
   if (esp_now_init() != ESP_OK) {
-    Serial.println("⚠ ESP-NOW init failed");
-    espnowReady = false;
-    return;
+    Serial.println("⚠ ESP-NOW init failed - retrying...");
+    delay(500);
+    if (esp_now_init() != ESP_OK) {
+      Serial.println("✗ ESP-NOW init failed after retry");
+      espnowReady = false;
+      return;
+    }
   }
   espnowReady = true;
   Serial.println("✓ ESP-NOW initialized");
+
   esp_now_register_send_cb(onDataSent);
   esp_now_register_recv_cb(onDataRecv);
+
+  delay(100);
+
   esp_now_peer_info_t peerInfo;
   memset(&peerInfo, 0, sizeof(peerInfo));
   memcpy(peerInfo.peer_addr, wristbandMac, 6);
-  peerInfo.channel = 0;
+  peerInfo.channel = channel;
+  #if defined(ESP_IF_WIFI_STA)
+    peerInfo.ifidx = ESP_IF_WIFI_STA;
+  #elif defined(WIFI_IF_STA)
+    peerInfo.ifidx = WIFI_IF_STA;
+  #else
+    peerInfo.ifidx = (wifi_interface_t)0;
+  #endif
   peerInfo.encrypt = false;
+
   if (!esp_now_is_peer_exist(wristbandMac)) {
-    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-      Serial.println("⚠ Failed to add ESP-NOW peer (wristband)");
+    esp_err_t addStatus = esp_now_add_peer(&peerInfo);
+    if (addStatus != ESP_OK) {
+      Serial.printf("⚠ Failed to add ESP-NOW peer (wristband) - error: %d\n", addStatus);
     } else {
       Serial.println("✓ Wristband ESP-NOW peer added");
+      Serial.printf("  Peer MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                    wristbandMac[0], wristbandMac[1], wristbandMac[2],
+                    wristbandMac[3], wristbandMac[4], wristbandMac[5]);
     }
   } else {
     Serial.println("✓ Wristband peer already exists");
   }
+  
+  delay(100);
 }
 
-// onDataRecv - handle vitals & ACK messages from wristband
+
 void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (data == NULL || len < 1) return;
   uint8_t msgType = data[0];
   if (msgType == MSG_TYPE_VITALS) {
-    if (len < (int)sizeof(espnow_vitals_t)) {
-      Serial.println("⚠ Received VITALS with unexpected length");
-      return;
-    }
-    espnow_vitals_t vitals;
-    memcpy(&vitals, data, sizeof(vitals));
+    if (len < (int)sizeof(espnow_vitals_t)) { Serial.println("⚠ Received VITALS unexpected length"); return; }
+    espnow_vitals_t vitals; memcpy(&vitals, data, sizeof(vitals));
     wristbandStatus.bpm = vitals.bpm;
     wristbandStatus.spo2 = vitals.spo2;
     wristbandStatus.fingerDetected = (vitals.finger != 0);
@@ -1096,37 +1076,27 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
     Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s ts=%lu\n",
                   wristbandStatus.bpm, wristbandStatus.spo2, wristbandStatus.fingerDetected?"YES":"NO", (unsigned long)vitals.timestamp);
   } else if (msgType == MSG_TYPE_ACK) {
-    if (len < (int)sizeof(espnow_ack_t)) {
-      Serial.println("⚠ Received ACK with unexpected length");
-      return;
-    }
-    espnow_ack_t ack;
-    memcpy(&ack, data, sizeof(ack));
+    if (len < (int)sizeof(espnow_ack_t)) { Serial.println("⚠ Received ACK unexpected length"); return; }
+    espnow_ack_t ack; memcpy(&ack, data, sizeof(ack));
     if (ack.messageId == wristbandStatus.lastMessageId) {
       wristbandStatus.messageAcknowledged = (ack.success != 0);
       Serial.printf("[ESP-NOW RX] ACK for msgId=%lu success=%s\n", (unsigned long)ack.messageId, ack.success ? "YES":"NO");
-    } else {
-      Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", (unsigned long)ack.messageId);
-    }
-  } else {
-    Serial.printf("[ESP-NOW RX] Unknown msgType: 0x%02X\n", msgType);
-  }
+    } else Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", (unsigned long)ack.messageId);
+  } else Serial.printf("[ESP-NOW RX] Unknown msgType: 0x%02X\n", msgType);
 }
 
-// onDataSent - callback; signature aligned with the platform's expectation (wifi_tx_info_t*)
 void onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   lastEspNowSendStatus = (status == ESP_NOW_SEND_SUCCESS) ? ESP_OK : ESP_FAIL;
-  Serial.printf("[ESP-NOW TX] status=%s\n", (status == ESP_NOW_SEND_SUCCESS) ? "OK":"FAIL");
+  char macStr[18];
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+          wristbandMac[0], wristbandMac[1], wristbandMac[2],
+          wristbandMac[3], wristbandMac[4], wristbandMac[5]);
+  Serial.printf("[ESP-NOW TX] to %s status=%s\n", macStr, (status == ESP_NOW_SEND_SUCCESS) ? "OK":"FAIL");
 }
 
-// sendTextToWristband - sends MSG_TYPE_TEXT
 bool sendTextToWristband(const String &message) {
-  if (!espnowReady) {
-    Serial.println("ESP-NOW not ready - cannot send text");
-    return false;
-  }
-  espnow_text_t pkt;
-  memset(&pkt, 0, sizeof(pkt));
+  if (!espnowReady) { Serial.println("ESP-NOW not ready - cannot send text"); return false; }
+  espnow_text_t pkt; memset(&pkt,0,sizeof(pkt));
   pkt.msgType = MSG_TYPE_TEXT;
   pkt.messageId = outgoingMessageCounter++;
   size_t len = message.length();
@@ -1164,18 +1134,13 @@ void receiveLoRaMessages() {
   Serial.printf("[LoRa RX] Packet: %s\n", incoming.c_str());
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, incoming);
-  if (err) {
-    Serial.println("LoRa JSON parse error");
-    return;
-  }
+  if (err) { Serial.println("LoRa JSON parse error"); return; }
   if (doc.containsKey("message")) {
     String message = doc["message"].as<String>();
     Serial.printf("Forwarding LoRa 'message' to wristband via ESP-NOW: %s\n", message.c_str());
     bool ok = sendTextToWristband(message);
     Serial.printf("Forward result: %s\n", ok ? "SENT":"FAILED");
-  } else {
-    Serial.println("LoRa packet has no 'message' field");
-  }
+  } else Serial.println("LoRa packet has no 'message' field");
 }
 
 void printSystemStatus() {
@@ -1196,31 +1161,3 @@ void printSystemStatus() {
   }
   Serial.println("---------------------\n");
 }
-
-// --------------------------- Emergency button handler (added) ---------------------------
-// Non-blocking button tap detection logic (preserves semantics, triggers emergencyTriggered)
-void checkEmergencyButton() {
-  static int lastButtonState = HIGH;
-  int reading = digitalRead(EMERGENCY_BUTTON_PIN);
-  unsigned long now = millis();
-  if (reading != lastButtonState) {
-    lastButtonState = reading;
-    if (reading == LOW) { // button pressed (INPUT_PULLUP -> LOW)
-      if (now - lastTapTime > TAP_TIMEOUT) tapCount = 0;
-      tapCount++;
-      lastTapTime = now;
-      Serial.printf("Emergency button tap #%d\n", tapCount);
-      if (tapCount >= REQUIRED_TAPS) {
-        emergencyTriggered = true;
-        tapCount = 0;
-        Serial.println("Emergency triggered via button!");
-      }
-    }
-  }
-  // reset stale taps
-  if (tapCount > 0 && (now - lastTapTime > TAP_TIMEOUT)) {
-    tapCount = 0;
-  }
-}
-
-// --------------------------- End of file ---------------------------
