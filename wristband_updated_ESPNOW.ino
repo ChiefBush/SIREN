@@ -1,12 +1,6 @@
-//contents:
 // wristband_espnow.ino
-// Wristband with MAX30102 + SSD1306 + ESP-NOW integration (fixed peer.ifidx assignment)
-//
-// - Sends vitals every 25 seconds (with finger detection)
-// - Receives text messages (ESP-NOW MSG_TYPE_TEXT) and displays them on OLED for 15s
-// - Sends ACK for text messages
-// - Displays connection status [OK]/[DISC] on top-right
-// - Compatible with ESP32 Arduino Core 3.3.2 (callback signatures and peer.ifidx handling)
+// Wristband with MAX30102 + SSD1306 + ESP-NOW integration
+// FIXED: Message display timeout and auto-scrolling for long text
 
 #include <Wire.h>
 #include <Adafruit_SSD1306.h>
@@ -14,7 +8,7 @@
 #include <heartRate.h>
 #include <WiFi.h>
 #include <esp_now.h>
-#include <esp_wifi.h> // for esp_wifi_set_channel and wifi_interface_t
+#include <esp_wifi.h>
 
 // OLED Display
 #define SCREEN_WIDTH 128
@@ -22,7 +16,7 @@
 #define OLED_RESET -1
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
-// I2C Pins - Both devices on same bus (GPIO4=SDA, GPIO5=SCL)
+// I2C Pins
 #define SDA_PIN 4
 #define SCL_PIN 5
 
@@ -39,60 +33,55 @@ float avgSpO2 = 0;
 
 // Timing
 unsigned long lastUpdate = 0;
-const unsigned long UPDATE_INTERVAL = 500;
+const unsigned long UPDATE_INTERVAL = 100; // faster update for smooth scrolling
 
-// ========================= ESP-NOW message types & sizes =========================
+// ESP-NOW message types
 #define MSG_TYPE_VITALS 0x01
 #define MSG_TYPE_TEXT   0x02
 #define MSG_TYPE_ACK    0x03
-
 #define MAX_TEXT_LEN 128
 
 typedef struct __attribute__((packed)) {
-  uint8_t msgType;      // MSG_TYPE_VITALS
-  uint8_t bpm;          // 0..255
-  uint8_t spo2;         // 0..100
-  uint8_t finger;       // 0/1
-  uint32_t timestamp;   // millis()
+  uint8_t msgType;
+  uint8_t bpm;
+  uint8_t spo2;
+  uint8_t finger;
+  uint32_t timestamp;
 } espnow_vitals_t;
 
 typedef struct __attribute__((packed)) {
-  uint8_t msgType;        // MSG_TYPE_TEXT
+  uint8_t msgType;
   uint32_t messageId;
-  uint8_t length;         // number of bytes used in message
+  uint8_t length;
   char text[MAX_TEXT_LEN];
 } espnow_text_t;
 
 typedef struct __attribute__((packed)) {
-  uint8_t msgType;        // MSG_TYPE_ACK
+  uint8_t msgType;
   uint32_t messageId;
-  uint8_t success;        // 0/1
+  uint8_t success;
 } espnow_ack_t;
 
-// ========================= Peer MAC addresses (from mac_addresses.txt) =============
-// Edge Node MAC: 28:56:2f:49:56:ac
-uint8_t edgeNodeMac[6] = {0x28, 0x56, 0x2F, 0x49, 0x56, 0xAC}; 
+// Peer MAC
+uint8_t edgeNodeMac[6] = {0x28, 0x56, 0x2F, 0x49, 0x56, 0xAC};
 
-// ========================= Display / connection state =========================
+// Display state
 bool displayingMessage = false;
 String currentMessage = "";
 unsigned long messageStartTime = 0;
 uint32_t currentMessageId = 0;
+int scrollOffset = 0;
+unsigned long lastScrollUpdate = 0;
+const unsigned long SCROLL_SPEED = 150; // milliseconds per pixel scroll
 
 bool edgeNodeConnected = false;
 unsigned long lastEdgeNodeContact = 0;
-
 bool espnowReady = false;
 
-// Vitals send interval and timers
-const unsigned long VITALS_INTERVAL = 25000UL; // 25 seconds
+const unsigned long VITALS_INTERVAL = 25000UL;
 unsigned long lastVitalsSent = 0;
-
-// message display duration (15 seconds)
 const unsigned long MESSAGE_DISPLAY_MS = 15000UL;
-
-// connection timeouts
-const unsigned long EDGE_NODE_DISCONNECT_MS = 60000UL; // 60 seconds
+const unsigned long EDGE_NODE_DISCONNECT_MS = 60000UL;
 
 // Forward declarations
 void initESPNOW();
@@ -103,39 +92,41 @@ void sendAcknowledgment(uint32_t messageId, bool success);
 void checkConnection();
 void displayMessageScreen(const String &msg, uint32_t messageId);
 void displayVitalsScreen(uint8_t bpm, uint8_t spo2, bool finger, bool connected);
-void drawWrappedText(const String &text, int x, int y, int maxWidthChars, int lineHeight);
 void scanBus();
+int calculateTextHeight(const String &text, int maxWidthChars, int lineHeight);
 
-// ========================= Setup & Loop =========================
 void setup() {
   Serial.begin(115200);
   while(!Serial) { delay(10); }
   delay(200);
 
-  Serial.println("\n\nMAX30102 + OLED Heart Rate Monitor + ESP-NOW (fixed peer.ifidx)");
+  Serial.println("\n\nMAX30102 + OLED Heart Rate Monitor + ESP-NOW (with auto-scroll)");
 
   WiFi.mode(WIFI_STA);
-  WiFi.disconnect(true);
+  WiFi.disconnect(false);
+  delay(100);
+  WiFi.begin();
+  delay(100);
 
-  // Set WiFi channel explicitly for ESP-NOW to match edge node (both must use same channel)
   int channel = 1;
   esp_err_t cherr = esp_wifi_set_channel(channel, WIFI_SECOND_CHAN_NONE);
   if (cherr == ESP_OK) {
-    Serial.printf("Setting WiFi channel to %d for ESP-NOW\n", channel);
+    Serial.printf("✓ WiFi channel set to %d\n", channel);
   } else {
-    Serial.printf("Failed to set WiFi channel (%d) err=%d\n", channel, (int)cherr);
+    Serial.printf("⚠ Failed to set WiFi channel err=%d\n", (int)cherr);
   }
 
   initESPNOW();
+  delay(200);
 
   Wire.begin(SDA_PIN, SCL_PIN);
   Wire.setClock(400000);
   delay(500);
 
+  Serial.println("\n=== I2C Device Scan ===");
   scanBus();
   delay(500);
 
-  // Initialize OLED
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
     Serial.println("ERROR: OLED not found!");
     while(1) { Serial.println("OLED Error - Check wiring"); delay(2000); }
@@ -149,18 +140,15 @@ void setup() {
   display.display();
   delay(500);
 
-  // Initialize MAX30102
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
     Serial.println("ERROR: MAX30102 not found!");
     display.clearDisplay();
     display.setTextSize(1);
     display.setCursor(0, 0);
     display.println("MAX30102 Error!");
-    display.setCursor(0, 10);
-    display.println("Check wiring");
     display.display();
     while(1) {
-      Serial.println("MAX30102 Error - Check wiring");
+      Serial.println("MAX30102 Error");
       delay(2000);
     }
   }
@@ -176,25 +164,20 @@ void setup() {
   display.println("Heart Rate Monitor");
   display.setCursor(0, 15);
   display.println("Place finger on sensor");
-  display.setCursor(0, 30);
-  display.println("and keep it steady...");
   display.display();
-  
   delay(3000);
 
-  lastVitalsSent = millis() - (VITALS_INTERVAL - 5000); // send first vitals soon, 5s before LoRa typical
+  lastVitalsSent = millis() - (VITALS_INTERVAL - 5000);
+  Serial.println("\n✓ Wristband ready");
 }
 
 void loop() {
-  // Read sensor values
   long irValue = particleSensor.getIR();
   long redValue = particleSensor.getRed();
 
-  // Detect heartbeat
   if (checkForBeat(irValue) == true) {
     long delta = millis() - lastBeat;
     lastBeat = millis();
-
     beatsPerMinute = 60 / (delta / 1000.0);
 
     if (beatsPerMinute < 255 && beatsPerMinute > 20) {
@@ -203,43 +186,40 @@ void loop() {
     }
   }
 
-  // Calculate average BPM
   float avgBPM = 0;
   for (byte x = 0; x < RATE_SIZE; x++)
     avgBPM += rates[x];
   avgBPM /= RATE_SIZE;
 
-  // Calculate SpO2
   if (redValue > 0 && irValue > 0) {
     float ratio = (float)redValue / irValue;
     avgSpO2 = 110 - 25 * ratio;
-    
     if (avgSpO2 < 80) avgSpO2 = 80;
     if (avgSpO2 > 100) avgSpO2 = 100;
   }
 
-  // Periodically update screen (non-blocking)
   if (millis() - lastUpdate > UPDATE_INTERVAL) {
     lastUpdate = millis();
 
-    // If currently displaying a received message, show that (with countdown)
+    // Check if message display period has expired
     if (displayingMessage) {
       unsigned long elapsed = millis() - messageStartTime;
       if (elapsed >= MESSAGE_DISPLAY_MS) {
-        // message display expired
+        // Time's up - return to vitals display
         displayingMessage = false;
         currentMessage = "";
+        scrollOffset = 0;
+        Serial.println("Message display timeout - returning to vitals");
       } else {
-        // display message screen
+        // Continue displaying message with scrolling
         displayMessageScreen(currentMessage, currentMessageId);
       }
     } else {
       // Normal vitals display
-      bool fingerDetected = (irValue > 50000); // same threshold as original
+      bool fingerDetected = (irValue > 50000);
       displayVitalsScreen((uint8_t)avgBPM, (uint8_t)avgSpO2, fingerDetected, edgeNodeConnected);
     }
 
-    // Serial output for debugging
     Serial.print("BPM: ");
     if (avgBPM > 0) Serial.print((int)avgBPM); else Serial.print("--");
     Serial.print(" | SpO2: ");
@@ -248,7 +228,6 @@ void loop() {
     Serial.println(irValue);
   }
 
-  // Send vitals every VITALS_INTERVAL (25s)
   if (millis() - lastVitalsSent >= VITALS_INTERVAL) {
     long irVal = particleSensor.getIR();
     bool fingerDetected = (irVal > 50000);
@@ -260,20 +239,15 @@ void loop() {
     lastVitalsSent = millis();
   }
 
-  // Connection monitoring
   checkConnection();
-
   delay(20);
 }
 
-// ========================= I2C scanner helper =========================
 void scanBus() {
   int foundCount = 0;
-  
   for(byte i = 0; i < 128; i++) {
     Wire.beginTransmission(i);
     byte error = Wire.endTransmission();
-    
     if (error == 0) {
       Serial.print("  Found device at: 0x");
       if (i < 16) Serial.print("0");
@@ -281,75 +255,69 @@ void scanBus() {
       foundCount++;
     }
   }
-  
-  if(foundCount == 0) {
-    Serial.println("  No devices found!");
-  } else {
-    Serial.print("  Total: ");
-    Serial.print(foundCount);
-    Serial.println(" device(s)\n");
-  }
+  Serial.print("  Total: ");
+  Serial.print(foundCount);
+  Serial.println(" device(s)\n");
 }
 
-// ========================= ESP-NOW Implementation (Wristband) =========================
-
-// Initialize ESP-NOW, add edge node peer, register callbacks
 void initESPNOW() {
+  if (WiFi.status() == WL_NO_SHIELD) {
+    Serial.println("⚠ WiFi not ready");
+    WiFi.mode(WIFI_STA);
+    delay(100);
+  }
+  
   if (esp_now_init() != ESP_OK) {
-    Serial.println("⚠ ESP-NOW init failed");
-    espnowReady = false;
-    return;
+    Serial.println("⚠ ESP-NOW init failed - retrying...");
+    delay(500);
+    if (esp_now_init() != ESP_OK) {
+      Serial.println("✗ ESP-NOW init failed");
+      espnowReady = false;
+      return;
+    }
   }
   espnowReady = true;
-  Serial.println("✓ ESP-NOW initialized (wristband)");
+  Serial.println("✓ ESP-NOW initialized");
 
-  // Register callbacks - use signatures for ESP32 Arduino Core 3.3.2
   esp_now_register_send_cb(onDataSent);
   esp_now_register_recv_cb(onDataRecv);
+  delay(100);
 
-  // Register peer (edge node) and bind to channel 1 and STA interface
   esp_now_peer_info_t peerInfo;
   memset(&peerInfo, 0, sizeof(peerInfo));
   memcpy(peerInfo.peer_addr, edgeNodeMac, 6);
   peerInfo.channel = 1;
 
-  // Set interface index robustly; use macros when available otherwise cast
   #if defined(ESP_IF_WIFI_STA)
     peerInfo.ifidx = ESP_IF_WIFI_STA;
   #elif defined(WIFI_IF_STA)
     peerInfo.ifidx = WIFI_IF_STA;
   #else
-    peerInfo.ifidx = (wifi_interface_t)0; // cast fallback
+    peerInfo.ifidx = (wifi_interface_t)0;
   #endif
 
   peerInfo.encrypt = false;
 
   if (!esp_now_is_peer_exist(edgeNodeMac)) {
-    if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-      Serial.println("⚠ Failed to add ESP-NOW peer (edge node)");
+    esp_err_t addStatus = esp_now_add_peer(&peerInfo);
+    if (addStatus != ESP_OK) {
+      Serial.printf("⚠ Failed to add peer - error: %d\n", addStatus);
     } else {
-      Serial.println("✓ Edge node ESP-NOW peer added");
+      Serial.println("✓ Edge node peer added");
     }
-  } else {
-    Serial.println("✓ Edge node peer already exists");
   }
+  delay(100);
 }
 
-// Received from edge node (TEXT or ACK)
 void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (data == NULL || len < 1) return;
   uint8_t msgType = data[0];
 
-  // Update last contact time for edge node
   lastEdgeNodeContact = millis();
   edgeNodeConnected = true;
 
   if (msgType == MSG_TYPE_TEXT) {
-    if (len < 6) {
-      Serial.println("⚠ Received TEXT with unexpected minimal length");
-      return;
-    }
-    // parse header fields carefully
+    if (len < 6) return;
     uint32_t msgId = 0;
     uint8_t lengthField = 0;
     memcpy(&msgId, &data[1], sizeof(msgId));
@@ -364,32 +332,25 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
     String receivedText = String(txtbuf);
     Serial.printf("[ESP-NOW RX] TEXT msgId=%lu text='%s'\n", (unsigned long)msgId, receivedText.c_str());
 
-    // Immediately display message
+    // Reset scroll and start displaying
+    scrollOffset = 0;
+    lastScrollUpdate = millis();
+    displayingMessage = true;
+    currentMessage = receivedText;
+    messageStartTime = millis();
+    currentMessageId = msgId;
+
     displayMessageScreen(receivedText, msgId);
-
-    // Send ACK back
     sendAcknowledgment(msgId, true);
-
-  } else if (msgType == MSG_TYPE_ACK) {
-    Serial.println("[ESP-NOW RX] Received ACK (ignored at wristband)");
-  } else if (msgType == MSG_TYPE_VITALS) {
-    Serial.println("[ESP-NOW RX] Received VITALS (ignored at wristband)");
-  } else {
-    Serial.printf("[ESP-NOW RX] Unknown msgType: 0x%02X\n", msgType);
   }
 }
 
-// onDataSent - callback when esp_now_send completes (wifi_tx_info_t* signature)
 void onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   Serial.printf("[ESP-NOW TX] status=%s\n", (status == ESP_NOW_SEND_SUCCESS) ? "OK":"FAIL");
 }
 
-// sendVitals - constructs MSG_TYPE_VITALS and sends to edge node
 void sendVitals(uint8_t bpm, uint8_t spo2, bool fingerDetected) {
-  if (!espnowReady) {
-    Serial.println("ESP-NOW not ready - cannot send vitals");
-    return;
-  }
+  if (!espnowReady) return;
   espnow_vitals_t pkt;
   pkt.msgType = MSG_TYPE_VITALS;
   pkt.bpm = bpm;
@@ -400,38 +361,26 @@ void sendVitals(uint8_t bpm, uint8_t spo2, bool fingerDetected) {
   esp_err_t rc = esp_now_send(edgeNodeMac, (uint8_t *)&pkt, sizeof(pkt));
   if (rc == ESP_OK) {
     Serial.printf("Sent VITALS bpm=%u spo2=%u finger=%s\n", bpm, spo2, fingerDetected?"YES":"NO");
-  } else {
-    Serial.printf("Failed to send VITALS (rc=%d)\n", rc);
   }
 }
 
-// sendAcknowledgment - send MSG_TYPE_ACK for messageId to edge node
 void sendAcknowledgment(uint32_t messageId, bool success) {
-  if (!espnowReady) {
-    Serial.println("ESP-NOW not ready - cannot send ack");
-    return;
-  }
+  if (!espnowReady) return;
   espnow_ack_t ack;
   ack.msgType = MSG_TYPE_ACK;
   ack.messageId = messageId;
   ack.success = success ? 1 : 0;
-  esp_err_t rc = esp_now_send(edgeNodeMac, (uint8_t *)&ack, sizeof(ack));
-  if (rc == ESP_OK) {
-    Serial.printf("Sent ACK msgId=%lu success=%s\n", (unsigned long)messageId, success ? "YES":"NO");
-  } else {
-    Serial.printf("Failed to send ACK (rc=%d)\n", rc);
-  }
+  esp_now_send(edgeNodeMac, (uint8_t *)&ack, sizeof(ack));
+  Serial.printf("Sent ACK msgId=%lu\n", (unsigned long)messageId);
 }
 
-// checkConnection - if no contact from edge node for EDGE_NODE_DISCONNECT_MS, show full-screen NO EDGE message
 void checkConnection() {
   unsigned long now = millis();
   if (edgeNodeConnected && (now - lastEdgeNodeContact > EDGE_NODE_DISCONNECT_MS)) {
     edgeNodeConnected = false;
-    Serial.println("Edge node connection timeout (60s) -> DISCONNECTED");
+    Serial.println("Edge node timeout -> DISCONNECTED");
     display.clearDisplay();
     display.setTextSize(2);
-    display.setTextColor(SSD1306_WHITE);
     display.setCursor(0, 10);
     display.println("NO EDGE NODE");
     display.setTextSize(1);
@@ -441,60 +390,131 @@ void checkConnection() {
   }
 }
 
-// displayMessageScreen - interrupt vitals screen and show message with countdown
-void displayMessageScreen(const String &msg, uint32_t messageId) {
-  displayingMessage = true;
-  currentMessage = msg;
-  messageStartTime = millis();
-  currentMessageId = messageId;
+// Calculate total height needed for wrapped text
+int calculateTextHeight(const String &text, int maxWidthChars, int lineHeight) {
+  int start = 0;
+  int len = text.length();
+  int lines = 0;
+  
+  while (start < len) {
+    int remaining = len - start;
+    int take = min(remaining, maxWidthChars);
+    
+    if (take == maxWidthChars) {
+      int lastSpace = -1;
+      for (int i = 0; i < take; i++) {
+        if (text.charAt(start + i) == ' ') lastSpace = i;
+      }
+      if (lastSpace > 0) take = lastSpace;
+    }
+    
+    lines++;
+    start += take;
+    while (start < len && text.charAt(start) == ' ') start++;
+  }
+  
+  return lines * lineHeight;
+}
 
-  // render immediately
+void displayMessageScreen(const String &msg, uint32_t messageId) {
+  const int maxWidthChars = 21;
+  const int lineHeight = 10;
+  const int textStartY = 12;
+  const int displayHeight = 52; // available height for text (64 - 12 header)
+  
+  // Calculate total text height
+  int totalTextHeight = calculateTextHeight(msg, maxWidthChars, lineHeight);
+  
+  // Update scroll position if text is taller than display area
+  if (totalTextHeight > displayHeight) {
+    if (millis() - lastScrollUpdate > SCROLL_SPEED) {
+      scrollOffset++;
+      // Loop back to start when we've scrolled through everything
+      int maxScroll = totalTextHeight - displayHeight + lineHeight;
+      if (scrollOffset > maxScroll) {
+        scrollOffset = -20; // pause at top before repeating
+      }
+      lastScrollUpdate = millis();
+    }
+  } else {
+    scrollOffset = 0; // no scrolling needed
+  }
+  
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  // Title
+  
+  // Header
   display.setCursor(0, 0);
   display.println("MSG:");
   display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
-
-  // Message body word-wrapped (21 chars per line max)
-  display.setCursor(0, 12);
-  drawWrappedText(currentMessage, 0, 12, 21, 10);
-
-  // Countdown timer to the right (we render remaining seconds)
+  
+  // Countdown timer
   unsigned long elapsed = millis() - messageStartTime;
   unsigned long remaining = 0;
-  if (elapsed < MESSAGE_DISPLAY_MS) remaining = (MESSAGE_DISPLAY_MS - elapsed) / 1000;
-  display.setTextSize(1);
+  if (elapsed < MESSAGE_DISPLAY_MS) {
+    remaining = (MESSAGE_DISPLAY_MS - elapsed) / 1000;
+  }
   display.setCursor(90, 0);
   display.printf("%2lus", remaining);
+  
+  // Draw text with scrolling
+  int start = 0;
+  int len = msg.length();
+  int line = 0;
+  int currentY = textStartY - scrollOffset;
+  
+  while (start < len) {
+    int remaining = len - start;
+    int take = min(remaining, maxWidthChars);
+    
+    if (take == maxWidthChars) {
+      int lastSpace = -1;
+      for (int i = 0; i < take; i++) {
+        if (msg.charAt(start + i) == ' ') lastSpace = i;
+      }
+      if (lastSpace > 0) take = lastSpace;
+    }
+    
+    String part = msg.substring(start, start + take);
+    
+    // Only draw if line is visible
+    if (currentY >= textStartY - lineHeight && currentY < SCREEN_HEIGHT) {
+      display.setCursor(0, currentY);
+      display.println(part);
+    }
+    
+    line++;
+    currentY += lineHeight;
+    start += take;
+    while (start < len && msg.charAt(start) == ' ') start++;
+  }
+  
   display.display();
 }
 
-// displayVitalsScreen - show BPM/SpO2 and connection indicator in top-right
 void displayVitalsScreen(uint8_t bpm, uint8_t spo2, bool finger, bool connected) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  // connection indicator
+  
+  // Connection indicator
   display.setCursor(88, 0);
   if (connected) display.print("[OK]");
   else display.print("[DISC]");
-
-  // Title line
+  
   display.setCursor(0, 0);
   display.println("HEART RATE MONITOR");
   display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
-
+  
   if (!finger) {
     display.setTextSize(2);
     display.setCursor(15, 25);
-    display.println("NO FINGER");
+    display.println("SIREN");
     display.setTextSize(1);
     display.setCursor(10, 50);
-    display.println("Place finger on sensor");
+    display.println("Small Text");
   } else {
-    // BPM
     display.setTextSize(3);
     display.setCursor(0, 18);
     if (bpm > 0) display.print(bpm); else display.print("--");
@@ -502,7 +522,6 @@ void displayVitalsScreen(uint8_t bpm, uint8_t spo2, bool finger, bool connected)
     display.setCursor(50, 25);
     display.println("BPM");
     
-    // SpO2
     display.setTextSize(2);
     display.setCursor(0, 45);
     display.print(spo2);
@@ -512,39 +531,9 @@ void displayVitalsScreen(uint8_t bpm, uint8_t spo2, bool finger, bool connected)
     display.setCursor(50, 50);
     display.println("SpO2");
     
-    // Signal indicator
     display.setCursor(90, 50);
     display.println("++");
   }
   
   display.display();
-}
-
-// helper: word-wrap message into screen lines (21 chars per line maximum)
-void drawWrappedText(const String &text, int x, int y, int maxWidthChars, int lineHeight) {
-  int start = 0;
-  int len = text.length();
-  int line = 0;
-  while (start < len) {
-    int remaining = len - start;
-    int take = remaining;
-    if (take > maxWidthChars) take = maxWidthChars;
-
-    // try to break on space before take
-    if (take == maxWidthChars) {
-      int lastSpace = -1;
-      for (int i = 0; i < take; i++) {
-        if (text.charAt(start + i) == ' ') lastSpace = i;
-      }
-      if (lastSpace > 0) take = lastSpace;
-    }
-
-    String part = text.substring(start, start + take);
-    display.setCursor(x, y + (line * lineHeight));
-    display.println(part);
-    line++;
-    start += take;
-    // skip leading spaces
-    while (start < len && text.charAt(start) == ' ') start++;
-  }
 }
