@@ -701,7 +701,10 @@ void setup() {
   
   // Set WiFi channel (same as wristband)
   int wifiChannel = 1;
-  esp_err_t channelResult = esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(true);
+esp_err_t channelResult = esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
+esp_wifi_set_promiscuous(false);
+delay(100);
   if (channelResult == ESP_OK) {
     Serial.printf("✓ WiFi channel set to %d\n", wifiChannel);
   } else {
@@ -1549,9 +1552,11 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
       
       // NEW: Play audio when message is successfully acknowledged by wristband
       if (ack.success && audioReady) {
-        playAudioFile(MESSAGE_RECEIVED);  // Play 0009.mp3
-        Serial.println("✓ Playing message received confirmation audio");
-      }
+  delay(200);  // Wait for ESP-NOW to finish
+  playAudioFile(MESSAGE_RECEIVED);
+  Serial.println("✓ Playing message received confirmation audio");
+  delay(100);  // Ensure audio command is sent
+}
       
     } else {
       Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", 
@@ -1599,9 +1604,14 @@ void checkWristbandConnection() {
   if (wristbandStatus.connected && (now - wristbandStatus.lastUpdate > 35000UL)) {
     wristbandStatus.connected = false;
     Serial.println("Wristband connection timed out (35s) -> DISCONNECTED");
+    
+    // ADD THESE LINES:
+    // Clear vitals data when disconnected
+    wristbandStatus.bpm = 0;
+    wristbandStatus.spo2 = 0;
+    wristbandStatus.fingerDetected = false;
   }
 }
-
 void receiveLoRaMessages() {
   int packetSize = LoRa.parsePacket();
   if (packetSize <= 0) return;
@@ -1653,6 +1663,7 @@ void receiveLoRaMessages() {
     
     // Forward to wristband
     bool success = sendTextToWristband(message);
+
     
     if (success) {
       messagesRelayedToWristband++;
