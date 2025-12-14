@@ -92,16 +92,17 @@ const byte CMD_STOP = 0x16;
 
 // Audio files mapping
 enum AudioFiles {
-  BOOT_AUDIO = 1,
-  SMOKE_ALERT = 2,
-  CO_ALERT = 3,
-  AIR_QUALITY_WARNING = 4,
-  HIGH_TEMP_ALERT = 5,
-  LOW_TEMP_ALERT = 6,
-  HIGH_HUMIDITY_ALERT = 7,
-  LOW_HUMIDITY_ALERT = 8,
-  FALL_DETECTED = 9,
-  MOTION_ALERT = 10
+  BOOT_AUDIO = 1,              // 0001.mp3 - System Boot
+  SMOKE_ALERT = 2,             // 0002.mp3 - Smoke and Gas
+  CO_ALERT = 3,                // 0003.mp3 - Carbon Monoxide
+  AIR_QUALITY_WARNING = 4,     // 0004.mp3 - Air Quality Warning
+  HIGH_TEMP_ALERT = 5,         // 0005.mp3 - High Temperature
+  LOW_TEMP_ALERT = 6,          // 0006.mp3 - Low Temperature
+  HIGH_HUMIDITY_ALERT = 7,     // 0007.mp3 - High Humidity
+  LOW_HUMIDITY_ALERT = 8,      // 0008.mp3 - Low Humidity
+  MESSAGE_RECEIVED = 9,        // 0009.mp3 - NEW: Message received on wristband
+  EMERGENCY_TRIPLE_TAP = 10,   // 0010.mp3 - NEW: Triple tap emergency
+  FALL_ALERT = 11              // 0011.mp3 - NEW: Fall detection alert
 };
 
 // ========================= ESP-NOW message types =========================
@@ -475,7 +476,7 @@ void detectFallAndHandle() {
       if (now - stationarySince >= STATIONARY_CONFIRM_MS) {
         motionData.fallDetected = true;
         emergencyTriggered = true;
-        if (audioReady) playAudioFile(FALL_DETECTED);
+        if (audioReady) playAudioFile(EMERGENCY_TRIPLE_TAP);  
         Serial.println("\n╔════════════════════════════════════╗");
         Serial.println("║    FALL CONFIRMED - IMPACT + STATIONARY   ║");
         Serial.println("╚════════════════════════════════════╝");
@@ -527,6 +528,13 @@ void checkEmergencyButton() {
 void handleEmergency() {
   Serial.println("\n████████ EMERGENCY MODE █████████");
   
+  // Play emergency audio FIRST before doing anything else
+  if (audioReady) {
+    playAudioFile(EMERGENCY_TRIPLE_TAP);  // Play 0010.mp3 for triple tap emergency
+    Serial.println("✓ Playing emergency triple-tap audio");
+    delay(100);  // Small delay to ensure audio command is sent
+  }
+  
   // Set the pending emergency flag so the main loop will send it
   pendingEmergency = true;
   
@@ -547,8 +555,7 @@ void handleEmergency() {
     Serial.println("⚠ LoRa not ready - emergency packet queued");
   }
   
-  if (audioReady) playAudioFile(FALL_DETECTED);
-  delay(800);
+  delay(500);  // Give some time for audio to play
 }
 
 // -------------------------- Setup & Loop --------------------------
@@ -1386,25 +1393,60 @@ void initESPNOW() {
 
 void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (data == NULL || len < 1) return;
+  
   uint8_t msgType = data[0];
+  
   if (msgType == MSG_TYPE_VITALS) {
-    if (len < (int)sizeof(espnow_vitals_t)) { Serial.println("⚠ Received VITALS unexpected length"); return; }
-    espnow_vitals_t vitals; memcpy(&vitals, data, sizeof(vitals));
+    if (len < (int)sizeof(espnow_vitals_t)) { 
+      Serial.println("⚠ Received VITALS unexpected length"); 
+      return; 
+    }
+    
+    espnow_vitals_t vitals; 
+    memcpy(&vitals, data, sizeof(vitals));
+    
     wristbandStatus.bpm = vitals.bpm;
     wristbandStatus.spo2 = vitals.spo2;
     wristbandStatus.fingerDetected = (vitals.finger != 0);
     wristbandStatus.lastUpdate = millis();
     wristbandStatus.connected = true;
+    
     Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s ts=%lu\n",
-                  wristbandStatus.bpm, wristbandStatus.spo2, wristbandStatus.fingerDetected?"YES":"NO", (unsigned long)vitals.timestamp);
+                  wristbandStatus.bpm, 
+                  wristbandStatus.spo2, 
+                  wristbandStatus.fingerDetected ? "YES" : "NO", 
+                  (unsigned long)vitals.timestamp);
+                  
   } else if (msgType == MSG_TYPE_ACK) {
-    if (len < (int)sizeof(espnow_ack_t)) { Serial.println("⚠ Received ACK unexpected length"); return; }
-    espnow_ack_t ack; memcpy(&ack, data, sizeof(ack));
+    if (len < (int)sizeof(espnow_ack_t)) { 
+      Serial.println("⚠ Received ACK unexpected length"); 
+      return; 
+    }
+    
+    espnow_ack_t ack; 
+    memcpy(&ack, data, sizeof(ack));
+    
     if (ack.messageId == wristbandStatus.lastMessageId) {
       wristbandStatus.messageAcknowledged = (ack.success != 0);
-      Serial.printf("[ESP-NOW RX] ACK for msgId=%lu success=%s\n", (unsigned long)ack.messageId, ack.success ? "YES":"NO");
-    } else Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", (unsigned long)ack.messageId);
-  } else Serial.printf("[ESP-NOW RX] Unknown msgType: 0x%02X\n", msgType);
+      
+      Serial.printf("[ESP-NOW RX] ACK for msgId=%lu success=%s\n", 
+                    (unsigned long)ack.messageId, 
+                    ack.success ? "YES" : "NO");
+      
+      // NEW: Play audio when message is successfully acknowledged by wristband
+      if (ack.success && audioReady) {
+        playAudioFile(MESSAGE_RECEIVED);  // Play 0009.mp3
+        Serial.println("✓ Playing message received confirmation audio");
+      }
+      
+    } else {
+      Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", 
+                    (unsigned long)ack.messageId);
+    }
+    
+  } else {
+    Serial.printf("[ESP-NOW RX] Unknown msgType: 0x%02X\n", msgType);
+  }
 }
 
 void onDataSent(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
