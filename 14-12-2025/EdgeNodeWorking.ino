@@ -60,7 +60,7 @@
 #define EMERGENCY_BUTTON_PIN 15
 
 // LoRa frequency
-#define LORA_BAND 915E6
+#define LORA_BAND 433E6
 
 // ========================= System constants =========================
 #define NODE_ID "001"
@@ -665,11 +665,13 @@ void setup() {
     LoRa.setCodingRate4(8);           // Error correction
     LoRa.setPreambleLength(8);        // Standard preamble
     LoRa.setSyncWord(0x34);           // Must match central node
+    LoRa.enableCrc();                 // Enable CRC checking
+    LoRa.setOCP(240);                 // Over current protection (240mA max)  
     
     loraReady = true;
     Serial.println("✓ LoRa initialized successfully");
     Serial.println("  Configuration:");
-    Serial.println("    - Frequency: 915 MHz");
+    Serial.println("    - Frequency: 433 MHz");        // Changed from 915 MHz
     Serial.println("    - TX Power: 20 dBm");
     Serial.println("    - Spreading Factor: 12");
     Serial.println("    - Bandwidth: 125 kHz");
