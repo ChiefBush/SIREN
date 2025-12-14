@@ -43,7 +43,7 @@ const int daylightOffset_sec = 0;
 #define LORA_SS 18     
 #define LORA_RST 14    
 #define LORA_DIO0 2    
-#define LORA_BAND 915E6
+#define LORA_BAND 433E6
 #define CENTRAL_NODE_ID "CENTRAL_GATEWAY_001"
 
 #define EMAIL_SEND_TIMEOUT 300000
@@ -183,7 +183,7 @@ void initializeLoRa() {
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
   
-  if (!LoRa.begin(LORA_BAND)) {
+  if (!LoRa.begin(LORA_BAND)) {  // Now 433E6
     Serial.println("ERROR: LoRa failed!");
     loraReady = false;
     return;
@@ -195,6 +195,10 @@ void initializeLoRa() {
   LoRa.setCodingRate4(8);
   LoRa.setPreambleLength(8);
   LoRa.setSyncWord(0x34);
+  
+  // ADD these lines for better 433 MHz performance:
+  LoRa.enableCrc();
+  LoRa.setOCP(240);
   
   Serial.println("LoRa OK\n");
   loraReady = true;
