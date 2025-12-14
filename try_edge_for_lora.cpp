@@ -231,6 +231,8 @@ bool espnowReady = false;
 esp_err_t lastEspNowSendStatus = ESP_OK;
 uint32_t outgoingMessageCounter = 1;
 
+unsigned long messagesRelayedToWristband = 0; 
+
 // ========================= Forward declarations =========================
 void printTestMenu();
 void handleTestCommand(String cmd);
@@ -995,6 +997,9 @@ void printTestMenu() {
   Serial.println("║ lora, button, emergency, calibrate     ║");
   Serial.println("║ status, scan/i2c, help/menu           ║");
   Serial.println("║ sendmsg <text>  (ESP-NOW -> wristband)║");
+  // ========== ADD THIS LINE ==========
+  Serial.println("║ relaystats      (Message relay stats) ║");
+  // ========== END OF NEW LINE ==========
   Serial.println("╚═══════════════════════════════════════╝\n");
 }
 
@@ -1027,6 +1032,22 @@ void handleTestCommand(String cmd) {
       Serial.printf("sendTextToWristband('%s') => %s\n", txt.c_str(), ok ? "SENT":"FAILED");
     }
   }
+  // ========== ADD THIS BLOCK HERE ==========
+  else if (cmd == "relaystats") {
+    Serial.println("\n╔════════════════════════════════════════════╗");
+    Serial.println("║      MESSAGE RELAY STATISTICS              ║");
+    Serial.println("╚════════════════════════════════════════════╝");
+    Serial.printf("Messages relayed to wristband: %lu\n", messagesRelayedToWristband);
+    Serial.printf("Last message ID sent: %lu\n", (unsigned long)(outgoingMessageCounter - 1));
+    Serial.printf("ESP-NOW status: %s\n", espnowReady ? "✓ Ready" : "✗ Not Ready");
+    Serial.printf("Wristband connected: %s\n", wristbandStatus.connected ? "✓ Yes" : "✗ No");
+    if (wristbandStatus.lastMessageId > 0) {
+      Serial.printf("Last message acknowledged: %s\n", 
+                    wristbandStatus.messageAcknowledged ? "✓ Yes" : "✗ No");
+    }
+    Serial.println("════════════════════════════════════════════\n");
+  }
+  // ========== END OF NEW BLOCK ==========
   else Serial.println("❌ Unknown command: " + cmd);
   Serial.println("\n>>> TEST COMPLETE <<<\n");
 }
@@ -1491,22 +1512,89 @@ void checkWristbandConnection() {
 void receiveLoRaMessages() {
   int packetSize = LoRa.parsePacket();
   if (packetSize <= 0) return;
+  
   String incoming = "";
   while (LoRa.available()) incoming += (char)LoRa.read();
   incoming.trim();
   if (incoming.length() == 0) return;
-  Serial.printf("[LoRa RX] Packet: %s\n", incoming.c_str());
+  
+  // Get signal quality
+  int rssi = LoRa.packetRssi();
+  float snr = LoRa.packetSnr();
+  
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.printf("║   LORA MESSAGE RECEIVED (RSSI: %4d dBm)   ║\n", rssi);
+  Serial.println("╚════════════════════════════════════════════╝");
+  Serial.println("Packet size: " + String(incoming.length()) + " bytes");
+  Serial.println("SNR: " + String(snr, 1) + " dB");
+  Serial.println("Raw data: " + incoming);
+  
+  // Parse JSON
   StaticJsonDocument<256> doc;
   DeserializationError err = deserializeJson(doc, incoming);
-  if (err) { Serial.println("LoRa JSON parse error"); return; }
+  
+  if (err) { 
+    Serial.println("❌ ERROR: JSON parse failed - " + String(err.c_str()));
+    Serial.println("════════════════════════════════════════════\n");
+    return; 
+  }
+  
+  // Check if this is a message relay packet
   if (doc.containsKey("message")) {
     String message = doc["message"].as<String>();
-    Serial.printf("Forwarding LoRa 'message' to wristband via ESP-NOW: %s\n", message.c_str());
-    bool ok = sendTextToWristband(message);
-    Serial.printf("Forward result: %s\n", ok ? "SENT":"FAILED");
-  } else Serial.println("LoRa packet has no 'message' field");
+    String from = doc["from"] | "unknown";
+    unsigned long timestamp = doc["timestamp"] | 0;
+    
+    Serial.println("\n┌────────────────────────────────────────────┐");
+    Serial.println("│   📨 MESSAGE RELAY REQUEST DETECTED        │");
+    Serial.println("├────────────────────────────────────────────┤");
+    Serial.printf("│ From: %-37s│\n", from.c_str());
+    Serial.printf("│ Timestamp: %-32lu│\n", timestamp);
+    Serial.printf("│ Message: %-34s│\n", message.substring(0, 34).c_str());
+    if (message.length() > 34) {
+      Serial.printf("│          %-34s│\n", message.substring(34, 68).c_str());
+    }
+    Serial.println("└────────────────────────────────────────────┘");
+    
+    Serial.println("\n→ Forwarding to wristband via ESP-NOW...");
+    
+    // Forward to wristband
+    bool success = sendTextToWristband(message);
+    
+    if (success) {
+      messagesRelayedToWristband++;
+      Serial.println("✓ Message forwarded successfully!");
+      Serial.println("  Total messages relayed: " + String(messagesRelayedToWristband));
+      
+      // Play audio confirmation (if audio is ready)
+      if (audioReady) {
+        delay(100);  // Small delay before audio
+        // Note: MESSAGE_RECEIVED audio (0009.mp3) will play automatically
+        // when wristband sends ACK in onDataRecv()
+      }
+    } else {
+      Serial.println("✗ Failed to forward message to wristband");
+      Serial.println("  Check: ESP-NOW status, wristband connection");
+    }
+    
+    Serial.println("════════════════════════════════════════════\n");
+  } 
+  else {
+    // Not a message packet - could be sensor data or other packet type
+    Serial.println("ℹ️  Packet received but no 'message' field found");
+    Serial.println("   (This is normal for sensor data packets)");
+    
+    // List available fields for debugging
+    Serial.print("   Available fields: ");
+    JsonObject obj = doc.as<JsonObject>();
+    for (JsonPair kv : obj) {
+      Serial.print(kv.key().c_str());
+      Serial.print(" ");
+    }
+    Serial.println();
+    Serial.println("════════════════════════════════════════════\n");
+  }
 }
-
 // Enhanced system status with more details
 void printSystemStatus() {
   unsigned long uptime = millis() / 1000;
@@ -1533,6 +1621,17 @@ void printSystemStatus() {
   Serial.printf("  Audio:    %s\n", 
                 audioReady ? "✓ Active" : "✗ Offline");
   Serial.println();
+  
+  // ========== ADD THIS BLOCK HERE ==========
+  Serial.println("Message Relay Status:");
+  Serial.printf("  Messages relayed to wristband: %lu\n", messagesRelayedToWristband);
+  Serial.printf("  Last message ID sent: %lu\n", (unsigned long)(outgoingMessageCounter - 1));
+  if (wristbandStatus.lastMessageId > 0) {
+    Serial.printf("  Last message acknowledged: %s\n", 
+                  wristbandStatus.messageAcknowledged ? "✓ Yes" : "✗ No");
+  }
+  Serial.println();
+  // ========== END OF NEW BLOCK ==========
   
   if (espnowReady) {
     if (wristbandStatus.connected) {
