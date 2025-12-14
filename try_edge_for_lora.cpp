@@ -76,6 +76,8 @@
 #define DANGER_MULTIPLIER 2.0
 #define CALIBRATION_DELAY 2000
 
+bool pendingEmergency = false;
+
 const int TAP_TIMEOUT = 600;
 const int REQUIRED_TAPS = 3;
 
@@ -524,14 +526,27 @@ void checkEmergencyButton() {
 // Emergency Handler function
 void handleEmergency() {
   Serial.println("\n████████ EMERGENCY MODE █████████");
+  
+  // Set the pending emergency flag so the main loop will send it
+  pendingEmergency = true;
+  
   SensorData s = readAllSensors();
   s.emergency = true;
   s.motion = motionData;
+  
   Serial.println("EMERGENCY SNAPSHOT:");
   Serial.printf(" Temp: %.2f C  Hum: %.2f %%\n", s.temperature, s.humidity);
   Serial.printf(" MQ2:%d MQ9:%d MQ135:%d\n", s.mq2_analog, s.mq9_analog, s.mq135_analog);
   Serial.printf(" Fall: %s\n", s.motion.fallDetected ? "YES":"NO");
-  if (loraReady) sendLoRaData(s); else Serial.println("LoRa not ready.");
+  
+  // Send emergency packet immediately
+  if (loraReady) {
+    sendLoRaData(s);
+    Serial.println("✓ Emergency packet sent via LoRa");
+  } else {
+    Serial.println("⚠ LoRa not ready - emergency packet queued");
+  }
+  
   if (audioReady) playAudioFile(FALL_DETECTED);
   delay(800);
 }
@@ -874,11 +889,12 @@ void loop() {
   // ========================================
   // PRIORITY 4: Handle emergency trigger
   // ========================================
-  if (emergencyTriggered) {
-    handleEmergency();
-    emergencyTriggered = false;
-    motionData.fallDetected = false;  // Reset fall flag
-  }
+  if (emergencyTriggered || pendingEmergency) {
+  handleEmergency();
+  emergencyTriggered = false;
+  motionData.fallDetected = false;
+  pendingEmergency = false;  // Clear the flag after handling
+}
   
   // ========================================
   // PRIORITY 5: Check for incoming LoRa messages
@@ -1267,20 +1283,40 @@ void sendLoRaData(SensorData data) {
   doc["mq2"] = data.mq2_analog;
   doc["mq9"] = data.mq9_analog;
   doc["mq135"] = data.mq135_analog;
-  doc["emergency"] = data.emergency ? 1 : 0;
+  
+  // CRITICAL: Explicitly set emergency field (not as 0/1 but as boolean)
+  doc["emergency"] = data.emergency;  // This will be true or false
+  
   doc["motion_accel"] = data.motion.totalAccel;
   doc["motion_gyro"] = data.motion.totalGyro;
   doc["bpm"] = wristbandStatus.connected ? wristbandStatus.bpm : 0;
   doc["spo2"] = wristbandStatus.connected ? wristbandStatus.spo2 : 0;
   doc["wristband_connected"] = wristbandStatus.connected ? 1 : 0;
+  
   char payload[512];
   size_t n = serializeJson(doc, payload, sizeof(payload));
-  if (!loraReady) { Serial.println("LoRa not ready - cannot send"); return; }
+  
+  if (!loraReady) { 
+    Serial.println("LoRa not ready - cannot send"); 
+    return; 
+  }
+  
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
+  
   packetCount++;
-  Serial.printf("LoRa packet #%d sent (%d bytes): %s\n", packetCount, (int)n, payload);
+  
+  // Enhanced logging for emergency packets
+  if (data.emergency) {
+    Serial.println("\n╔═══════════════════════════════════════╗");
+    Serial.println("║   EMERGENCY PACKET TRANSMITTED        ║");
+    Serial.println("╚═══════════════════════════════════════╝");
+  }
+  
+  Serial.printf("LoRa packet #%d sent (%d bytes)%s\n", 
+                packetCount, (int)n, data.emergency ? " [EMERGENCY]" : "");
+  Serial.println("Payload: " + String(payload));
 }
 
 // ---------------- ESP-NOW Implementation ----------------
