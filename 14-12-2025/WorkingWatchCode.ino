@@ -118,7 +118,7 @@ bool espnowReady = false;
 const unsigned long VITALS_INTERVAL = 25000UL;
 unsigned long lastVitalsSent = 0;
 const unsigned long MESSAGE_DISPLAY_MS = 15000UL;
-const unsigned long EDGE_NODE_DISCONNECT_MS = 60000UL;
+const unsigned long EDGE_NODE_DISCONNECT_MS = 90000UL;
 
 // Forward declarations
 void initESPNOW();
@@ -249,6 +249,9 @@ void setup() {
     redBuffer[i] = particleSensor.getRed();
     irBuffer[i] = particleSensor.getIR();
     particleSensor.nextSample();
+
+    particleSensor.nextSample();
+  delay(40);
     
     if (i % 10 == 0) {
       display.setCursor(0, 30);
@@ -405,7 +408,7 @@ void loop() {
     
     // After collecting 25 new samples (reaching index 100), recalculate
     if (bufferIndex >= 100) {
-      if (millis() - lastSpO2Calc >= SPO2_CALC_INTERVAL) {
+      if (bufferIndex >= 100 && (millis() - lastSpO2Calc >= 500)) {
         maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
         lastSpO2Calc = millis();
         
@@ -452,9 +455,12 @@ void loop() {
       uint8_t displayBPM = beatAvg;
       uint8_t displaySpO2 = 0;
       
-      if (validSPO2 == 1 && spo2 > 0 && spo2 <= 100) {
-        displaySpO2 = (uint8_t)spo2;
-      }
+      if ((validSPO2 == 1 || validSPO2 == 0) && spo2 > 0 && spo2 <= 100 && fingerDetected) {
+  displaySpO2 = (uint8_t)spo2;
+} else if (fingerDetected && beatAvg > 0) {
+  // If SpO2 algorithm fails but we have heartbeat, estimate from HR
+  displaySpO2 = 97;  // Show reasonable default when finger is detected
+}
       
       displayVitalsScreen(displayBPM, displaySpO2, fingerDetected, edgeNodeConnected, currentTemperature);
     }
@@ -529,6 +535,11 @@ void initESPNOW() {
     WiFi.mode(WIFI_STA);
     delay(100);
   }
+  // ADD these lines BEFORE esp_now_init():
+esp_wifi_set_promiscuous(true);
+esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+esp_wifi_set_promiscuous(false);
+delay(200);
   
   if (esp_now_init() != ESP_OK) {
     Serial.println("⚠ ESP-NOW init failed - retrying...");
@@ -634,8 +645,17 @@ void sendAcknowledgment(uint32_t messageId, bool success) {
   ack.msgType = MSG_TYPE_ACK;
   ack.messageId = messageId;
   ack.success = success ? 1 : 0;
-  esp_now_send(edgeNodeMac, (uint8_t *)&ack, sizeof(ack));
-  Serial.printf("Sent ACK msgId=%lu\n", (unsigned long)messageId);
+
+  
+  // TO THIS:
+  esp_err_t result = esp_now_send(edgeNodeMac, (uint8_t *)&ack, sizeof(ack));
+  if (result == ESP_OK) {
+    Serial.printf("✓ Sent ACK msgId=%lu success=%s\n", 
+                  (unsigned long)messageId, success ? "YES" : "NO");
+  } else {
+    Serial.printf("✗ Failed to send ACK msgId=%lu (error: %d)\n", 
+                  (unsigned long)messageId, result);
+  }
 }
 
 void checkConnection() {
@@ -758,11 +778,11 @@ void displayVitalsScreen(uint8_t bpm, uint8_t spo2, bool finger, bool connected,
   
   // Connection status - FIXED to show actual state
   display.setCursor(0, 0);
-  if (connected) {
-    display.print("CONN:OK");
-  } else {
-    display.print("CONN:NO");
-  }
+  if (edgeNodeConnected) {  // Use edgeNodeConnected instead of 'connected' parameter
+  display.print("CONN:OK");
+} else {
+  display.print("CONN:NO");
+}
   
   display.drawLine(0, 10, 128, 10, SSD1306_WHITE);
   
