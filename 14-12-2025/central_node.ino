@@ -76,6 +76,8 @@ unsigned long lastStatsDisplay = 0;
 unsigned long lastWiFiCheck = 0;
 unsigned long lastNTPSync = 0;
 
+unsigned long messagesDeliveredToWristband = 0;  // Successfully ACKed by wristband
+
 unsigned long messagesSentToEdge = 0;
 unsigned long lastTestMessage = 0;
 
