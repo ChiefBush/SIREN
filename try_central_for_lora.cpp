@@ -23,6 +23,8 @@
 #define SENDER_PASSWORD "jczhurwioeagagiw"  // App password without spaces
 #define SUPERVISOR_EMAIL "caneriesiren@gmail.com"
 
+#define DEBUG_MODE true
+
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 19800;
 const int daylightOffset_sec = 0;
@@ -292,48 +294,100 @@ String cleanJsonPacket(String rawPacket) {
 }
 
 void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
-  DynamicJsonDocument receivedDoc(768);  // Increased for additional fields
-  if (deserializeJson(receivedDoc, cleanedPacket)) {
+  DynamicJsonDocument receivedDoc(768);
+  
+  DeserializationError error = deserializeJson(receivedDoc, cleanedPacket);
+  if (error) {
     packetsCorrupted++;
-    Serial.println("ERROR: JSON parse failed");
+    Serial.println("ERROR: JSON parse failed: " + String(error.c_str()));
+    Serial.println("Raw packet: " + cleanedPacket);
     return;
   }
   
-  bool isEmergency = receivedDoc["emergency"] | false;
+  // DEBUG: Print entire received JSON
+  if (DEBUG_MODE) {
+    Serial.println("\n=== RECEIVED JSON DEBUG ===");
+    serializeJsonPretty(receivedDoc, Serial);
+    Serial.println("\n===========================");
+  }
+  
+  // CRITICAL FIX: Check for emergency field more robustly
+  bool isEmergency = false;
+  
+  // Method 1: Check if field exists and is true
+  if (receivedDoc.containsKey("emergency")) {
+    JsonVariant emergencyVar = receivedDoc["emergency"];
+    
+    if (emergencyVar.is<bool>()) {
+      isEmergency = emergencyVar.as<bool>();
+    } else if (emergencyVar.is<int>()) {
+      isEmergency = (emergencyVar.as<int>() != 0);
+    } else if (emergencyVar.is<const char*>()) {
+      String emergencyStr = emergencyVar.as<String>();
+      emergencyStr.toLowerCase();
+      isEmergency = (emergencyStr == "true" || emergencyStr == "1");
+    }
+    
+    Serial.println("Emergency field found: " + String(isEmergency ? "TRUE" : "FALSE"));
+  } else {
+    Serial.println("WARNING: No 'emergency' field in JSON");
+  }
+  
   String nodeId = receivedDoc["node"] | "UNKNOWN";
   
+  // Handle emergency
   if (isEmergency) {
     emergenciesDetected++;
-    Serial.println("\n╔════════════════════════════════════╗");
-    Serial.println("║  EMERGENCY SIGNAL RECEIVED!        ║");
-    Serial.println("╚════════════════════════════════════╝\n");
+    
+    Serial.println("\n╔════════════════════════════════════════════╗");
+    Serial.println("║  🚨 EMERGENCY SIGNAL RECEIVED! 🚨          ║");
+    Serial.println("║  Node: " + nodeId + String(35 - nodeId.length(), ' ') + "║");
+    Serial.println("║  Emergency Count: " + String(emergenciesDetected) + String(27 - String(emergenciesDetected).length(), ' ') + "║");
+    Serial.println("╚════════════════════════════════════════════╝\n");
     
     if (canSendEmergencyEmail(nodeId)) {
+      Serial.println(">>> SENDING EMERGENCY EMAIL <<<");
       sendEmergencyEmail(receivedDoc, rssi, snr);
       recordEmergency(nodeId);
     } else {
-      Serial.println("Rate limit active - email skipped\n");
+      unsigned long timeSinceLastEmail = 0;
+      for (int i = 0; i < EMAIL_BUFFER_SIZE; i++) {
+        if (emergencyBuffer[i].nodeId == nodeId) {
+          timeSinceLastEmail = (millis() - emergencyBuffer[i].lastAlertTime) / 1000;
+          break;
+        }
+      }
+      Serial.println("⏱ Rate limit active for node " + nodeId);
+      Serial.println("   Time since last email: " + String(timeSinceLastEmail) + "s");
+      Serial.println("   Cooldown period: " + String(EMAIL_SEND_TIMEOUT/1000) + "s");
+      Serial.println("   Email skipped\n");
+    }
+  } else {
+    if (DEBUG_MODE) {
+      Serial.println("📊 Normal packet (non-emergency) from node " + nodeId);
     }
   }
   
-  DynamicJsonDocument uploadDoc(1536);  // Increased for additional fields
+  // Build upload document
+  DynamicJsonDocument uploadDoc(1536);
   uploadDoc["sensor_node_id"] = nodeId;
-  uploadDoc["sensor_packet_count"] = 0;  // Not included in new schema
+  uploadDoc["sensor_packet_count"] = 0;
   uploadDoc["sensor_timestamp"] = receivedDoc["timestamp"] | 0;
   uploadDoc["temperature"] = receivedDoc["temp"];
   uploadDoc["humidity"] = receivedDoc["hum"] | 0;
   uploadDoc["mq2_analog"] = receivedDoc["mq2"] | 0;
   uploadDoc["mq9_analog"] = receivedDoc["mq9"] | 0;
   uploadDoc["mq135_analog"] = receivedDoc["mq135"] | 0;
-  uploadDoc["mq2_digital"] = false;  // Not included in new schema
-  uploadDoc["mq9_digital"] = false;  // Not included in new schema
-  uploadDoc["mq135_digital"] = false;  // Not included in new schema
-  uploadDoc["air_quality"] = "Unknown";  // Not included in new schema
+  uploadDoc["mq2_digital"] = false;
+  uploadDoc["mq9_digital"] = false;
+  uploadDoc["mq135_digital"] = false;
+  uploadDoc["air_quality"] = "Unknown";
   uploadDoc["motion_accel"] = receivedDoc["motion_accel"] | 0;
   uploadDoc["motion_gyro"] = receivedDoc["motion_gyro"] | 0;
   uploadDoc["bpm"] = receivedDoc["bpm"] | 0;
   uploadDoc["spo2"] = receivedDoc["spo2"] | 0;
   uploadDoc["wristband_connected"] = receivedDoc["wristband_connected"] | 0;
+  uploadDoc["emergency"] = isEmergency;  // Add emergency field to database
   uploadDoc["central_node_id"] = CENTRAL_NODE_ID;
   uploadDoc["received_time"] = getCurrentDateTime();
   uploadDoc["received_timestamp"] = millis();
@@ -344,12 +398,14 @@ void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
   String jsonString;
   serializeJson(uploadDoc, jsonString);
   
-  Serial.println("Payload: " + jsonString);
+  if (DEBUG_MODE || isEmergency) {
+    Serial.println("Upload Payload: " + jsonString);
+  }
   
   if (supabaseReady) {
     uploadToSupabase(jsonString);
   } else {
-    Serial.println("WARNING: Supabase not ready");
+    Serial.println("WARNING: Supabase not ready - data not uploaded");
   }
 }
 
@@ -390,9 +446,13 @@ void recordEmergency(String nodeId) {
 
 void sendEmergencyEmail(JsonDocument& sensorData, int rssi, float snr) {
   if (!wifiConnected) {
-    Serial.println("ERROR: WiFi disconnected - cannot send email");
+    Serial.println("❌ ERROR: WiFi disconnected - cannot send email");
     return;
   }
+  
+  Serial.println("\n╔══════════════════════════════════════╗");
+  Serial.println("║   PREPARING EMERGENCY EMAIL          ║");
+  Serial.println("╚══════════════════════════════════════╝\n");
   
   String nodeId = sensorData["node"] | "UNKNOWN";
   float temperature = sensorData["temp"] | 0;
@@ -406,40 +466,68 @@ void sendEmergencyEmail(JsonDocument& sensorData, int rssi, float snr) {
   float motionAccel = sensorData["motion_accel"] | 0;
   float motionGyro = sensorData["motion_gyro"] | 0;
   
-  String subject = "URGENT: Mine Worker Emergency - Node " + nodeId;
-  String emailBody = "EMERGENCY DISTRESS SIGNAL\n\n";
-  emailBody += "Node: " + nodeId + "\n";
-  emailBody += "Time: " + getCurrentDateTime() + "\n\n";
-  emailBody += "Temperature: " + String(temperature, 1) + "C\n";
-  emailBody += "Humidity: " + String(humidity, 1) + "%\n";
-  emailBody += "MQ2: " + String(mq2) + "\n";
-  emailBody += "MQ9: " + String(mq9) + "\n";
-  emailBody += "MQ135: " + String(mq135) + "\n";
-  emailBody += "Motion Accel: " + String(motionAccel, 2) + "\n";
-  emailBody += "Motion Gyro: " + String(motionGyro, 2) + "\n";
-  emailBody += "Heart Rate: " + String(bpm) + " BPM\n";
-  emailBody += "SpO2: " + String(spo2) + "%\n";
-  emailBody += "Wristband: " + String(wristbandConnected ? "Connected" : "Disconnected") + "\n";
-  emailBody += "RSSI: " + String(rssi) + " dBm\n\n";
-  emailBody += "IMMEDIATE ACTION REQUIRED!\n";
+  String subject = "🚨 URGENT: Mine Worker Emergency - Node " + nodeId;
   
-  Serial.println(">>> Sending emergency email...");
+  String emailBody = "╔═══════════════════════════════════════════╗\n";
+  emailBody += "║   EMERGENCY DISTRESS SIGNAL DETECTED      ║\n";
+  emailBody += "╚═══════════════════════════════════════════╝\n\n";
+  emailBody += "Node ID: " + nodeId + "\n";
+  emailBody += "Timestamp: " + getCurrentDateTime() + "\n";
+  emailBody += "Emergency Count: #" + String(emergenciesDetected) + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "ENVIRONMENTAL CONDITIONS:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "Temperature:     " + String(temperature, 1) + "°C\n";
+  emailBody += "Humidity:        " + String(humidity, 1) + "%\n";
+  emailBody += "MQ2 (Smoke):     " + String(mq2) + "\n";
+  emailBody += "MQ9 (CO):        " + String(mq9) + "\n";
+  emailBody += "MQ135 (Quality): " + String(mq135) + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "MOTION & VITALS:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "Acceleration:    " + String(motionAccel, 2) + " m/s²\n";
+  emailBody += "Gyro Rotation:   " + String(motionGyro, 2) + " °/s\n";
+  emailBody += "Heart Rate:      " + String(bpm) + " BPM\n";
+  emailBody += "Blood Oxygen:    " + String(spo2) + "%\n";
+  emailBody += "Wristband:       " + String(wristbandConnected ? "✓ Connected" : "✗ Disconnected") + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "SIGNAL QUALITY:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "RSSI:            " + String(rssi) + " dBm\n";
+  emailBody += "SNR:             " + String(snr) + " dB\n\n";
+  emailBody += "⚠️  IMMEDIATE ACTION REQUIRED!\n";
+  emailBody += "    Contact emergency response team.\n";
   
+  Serial.println("Email Subject: " + subject);
+  Serial.println("Email Length: " + String(emailBody.length()) + " characters");
+  Serial.println();
+  
+  // Try to send email with retries
   for (int attempt = 1; attempt <= 3; attempt++) {
-    Serial.println("Attempt " + String(attempt) + "/3");
+    Serial.println("📧 Email Send Attempt " + String(attempt) + "/3...");
+    
     if (sendSMTPEmail(subject, emailBody)) {
       emailsSent++;
-      Serial.println(">>> Email sent successfully!\n");
+      Serial.println("\n✅ Email sent successfully!");
+      Serial.println("   Total emails sent: " + String(emailsSent));
+      Serial.println("╚══════════════════════════════════════╝\n");
       return;
     }
+    
     if (attempt < 3) {
-      Serial.println("Retrying in 5 seconds...");
+      Serial.println("❌ Attempt " + String(attempt) + " failed. Retrying in 5 seconds...\n");
       delay(5000);
     }
   }
   
-  Serial.println(">>> Email send failed after 3 attempts\n");
-}
+  Serial.println("\n❌ ERROR: Email send failed after 3 attempts");
+  Serial.println("   Check:");
+  Serial.println("   1. WiFi connection");
+  Serial.println("   2. SMTP credentials");
+  Serial.println("   3. Gmail app password");
+  Serial.println("   4. Internet connectivity");
+  Serial.println("╚══════════════════════════════════════╝\n");
+} 
 
 String readSMTPResponse(WiFiClient& client, int timeout) {
   unsigned long start = millis();
@@ -651,13 +739,26 @@ String getCurrentDateTime() {
 }
 
 void displayStatistics() {
-  Serial.println("\n=== STATISTICS ===");
-  Serial.println("WiFi: " + String(wifiConnected ? "✓" : "✗"));
-  Serial.println("Supabase: " + String(supabaseReady ? "✓" : "✗"));
-  Serial.println("NTP: " + String(ntpSynced ? "✓" : "✗"));
-  Serial.println("RX: " + String(packetsReceived));
-  Serial.println("TX: " + String(packetsUploaded));
-  Serial.println("Emergencies: " + String(emergenciesDetected));
-  Serial.println("Emails: " + String(emailsSent));
-  Serial.println("==================\n");
+  Serial.println("\n╔═══════════════════════════════════════╗");
+  Serial.println("║         SYSTEM STATISTICS             ║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Component Status:                     ║");
+  Serial.println("║   WiFi:      " + String(wifiConnected ? "✓ Connected  " : "✗ Disconnected") + "             ║");
+  Serial.println("║   Supabase:  " + String(supabaseReady ? "✓ Ready      " : "✗ Not Ready  ") + "             ║");
+  Serial.println("║   NTP:       " + String(ntpSynced ? "✓ Synced     " : "✗ Not Synced ") + "             ║");
+  Serial.println("║   LoRa:      " + String(loraReady ? "✓ Active     " : "✗ Offline    ") + "             ║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Packet Statistics:                    ║");
+  Serial.println("║   Received:    " + String(packetsReceived) + String(21 - String(packetsReceived).length(), ' ') + "║");
+  Serial.println("║   Uploaded:    " + String(packetsUploaded) + String(21 - String(packetsUploaded).length(), ' ') + "║");
+  Serial.println("║   Corrupted:   " + String(packetsCorrupted) + String(21 - String(packetsCorrupted).length(), ' ') + "║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Emergency Statistics:                 ║");
+  Serial.println("║   🚨 Emergencies: " + String(emergenciesDetected) + String(19 - String(emergenciesDetected).length(), ' ') + "║");
+  Serial.println("║   📧 Emails Sent: " + String(emailsSent) + String(19 - String(emailsSent).length(), ' ') + "║");
+  Serial.println("╚═══════════════════════════════════════╝\n");
+  
+  // Show current time
+  Serial.println("Current Time: " + getCurrentDateTime());
+  Serial.println();
 }
