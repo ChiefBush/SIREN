@@ -6,6 +6,7 @@ import AuthPage from './pages/AuthPage'
 import MinerDashboard from './pages/MinerDashboard'
 import SupervisorDashboard from './pages/SupervisorDashboard'
 import AdminDashboard from './pages/AdminDashboard'
+import MinerView from './pages/MinerView'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -169,6 +170,16 @@ function App() {
           element={
             user && getCurrentRole() === 'supervisor' ? (
               <SupervisorDashboard onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/auth" />
+            )
+          }
+        />
+        <Route
+          path="/supervisor/miners/:minerId"
+          element={
+            user && getCurrentRole() === 'supervisor' ? (
+              <MinerView onLogout={handleLogout} />
             ) : (
               <Navigate to="/auth" />
             )

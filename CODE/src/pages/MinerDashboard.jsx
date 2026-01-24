@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import SensorMetrics from './SensorMetrics'
+import DashboardCharts from '../components/DashboardCharts'
+import Attendance from './Attendance'
+import LeaveApplication from './LeaveApplication'
 
-function MinerDashboard({ onLogout }) {
+function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
   const navigate = useNavigate()
   const [activePage, setActivePage] = useState('dashboard')
   const [user, setUser] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
+  const [isActive, setIsActive] = useState(false)
 
   // Synthetic sensor data
   const [sensorData, setSensorData] = useState({
@@ -18,25 +23,97 @@ function MinerDashboard({ onLogout }) {
     humidity: 0.0
   })
 
-  // Fetch user profile
+  // Fetch user profile - use userId prop if provided, else use logged-in user
   useEffect(() => {
     const fetchUser = async () => {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        setUser(authUser)
-        // Fetch user profile
+      if (userId) {
+        // Fetch specific user by userId (for supervisor view)
         const { data: profile } = await supabase
           .from('users')
-          .select('full_name, email')
-          .eq('id', authUser.id)
+          .select('id, full_name, email')
+          .eq('id', userId)
           .single()
         if (profile) {
+          setUser({ id: profile.id, email: profile.email })
           setUserProfile(profile)
+        }
+      } else {
+        // Default: fetch logged-in user
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        if (authUser) {
+          setUser(authUser)
+          // Fetch user profile
+          const { data: profile } = await supabase
+            .from('users')
+            .select('full_name, email')
+            .eq('id', authUser.id)
+            .single()
+          if (profile) {
+            setUserProfile(profile)
+          }
         }
       }
     }
     fetchUser()
-  }, [])
+  }, [userId])
+
+  // Fetch attendance status
+  useEffect(() => {
+    const fetchAttendanceStatus = async () => {
+      const targetUserId = userId || user?.id
+      if (!targetUserId) return
+
+      try {
+        const today = new Date().toISOString().split('T')[0]
+        const { data, error } = await supabase
+          .from('attendance')
+          .select('entry_time, exit_time')
+          .eq('user_id', targetUserId)
+          .eq('date', today)
+          .single()
+
+        if (error && error.code !== 'PGRST116') { // PGRST116 is "no rows returned"
+          console.error('Error fetching attendance status:', error)
+          return
+        }
+
+        // Active if entry_time exists and exit_time is null
+        setIsActive(data ? (data.entry_time && !data.exit_time) : false)
+      } catch (error) {
+        console.error('Error in fetchAttendanceStatus:', error)
+      }
+    }
+
+    if (user || userId) {
+      fetchAttendanceStatus()
+    }
+
+    // Refresh attendance status periodically
+    const interval = setInterval(() => {
+      fetchAttendanceStatus()
+    }, 30000) // Every 30 seconds
+
+    // Subscribe to attendance changes for real-time updates
+    const channel = supabase
+      .channel('attendance-realtime-miner')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'attendance'
+        },
+        () => {
+          fetchAttendanceStatus()
+        }
+      )
+      .subscribe()
+
+    return () => {
+      clearInterval(interval)
+      supabase.removeChannel(channel)
+    }
+  }, [user, userId])
 
   // Update time every second
   useEffect(() => {
@@ -62,10 +139,11 @@ function MinerDashboard({ onLogout }) {
   }, [])
 
   const handleLogout = async () => {
-    if (onLogout) {
+    // Only allow logout if not in read-only mode
+    if (!isReadOnly && onLogout) {
       await onLogout()
+      navigate('/')
     }
-    navigate('/')
   }
 
   // Helper function to get sensor status
@@ -89,23 +167,19 @@ function MinerDashboard({ onLogout }) {
   const allSystemsNormal = warningCount === 0 && criticalCount === 0
 
   const formatTime = (date) => {
-    return date.toLocaleTimeString('en-US', { 
-      hour: 'numeric', 
-      minute: '2-digit', 
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
       second: '2-digit',
-      hour12: true 
+      hour12: true
     })
   }
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'sensor', label: 'Sensor Monitor', icon: '📡' },
+    { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
     { id: 'attendance', label: 'Attendance', icon: '🕐' },
-    { id: 'shifts', label: 'Shifts', icon: '📅' },
-    { id: 'health', label: 'Health Log', icon: '❤️' },
-    { id: 'incidents', label: 'Incidents', icon: '⚠️' },
-    { id: 'alerts', label: 'Alerts', icon: '🔔' },
-    { id: 'salary', label: 'Salary', icon: '💰' }
+    { id: 'leave', label: 'Leave Application', icon: '📝' }
   ]
 
   return (
@@ -133,11 +207,10 @@ function MinerDashboard({ onLogout }) {
             <button
               key={item.id}
               onClick={() => setActivePage(item.id)}
-              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-colors ${
-                activePage === item.id
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-700'
-              }`}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-colors ${activePage === item.id
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-300 hover:bg-gray-700'
+                }`}
             >
               <span className="text-xl">{item.icon}</span>
               <span className="font-medium">{item.label}</span>
@@ -145,15 +218,17 @@ function MinerDashboard({ onLogout }) {
           ))}
         </nav>
 
-        {/* Logout Button */}
-        <div className="p-4 border-t border-gray-700">
-          <button
-            onClick={handleLogout}
-            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
-          >
-            Logout
-          </button>
-        </div>
+        {/* Logout Button - only show if not read-only */}
+        {!isReadOnly && (
+          <div className="p-4 border-t border-gray-700">
+            <button
+              onClick={handleLogout}
+              className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+            >
+              Logout
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Content Area */}
@@ -162,15 +237,35 @@ function MinerDashboard({ onLogout }) {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
+              {isReadOnly && (
+                <button
+                  onClick={() => navigate('/supervisor')}
+                  className="mr-2 px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 text-sm font-medium flex items-center space-x-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Back</span>
+                </button>
+              )}
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
                 </svg>
               </div>
               <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
+              {isReadOnly && (
+                <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                  Read-Only View
+                </span>
+              )}
             </div>
             <div className="text-gray-600">
-              Welcome, {userProfile?.full_name || user?.email || 'User'}
+              {isReadOnly ? (
+                <span>Viewing: {userProfile?.full_name || user?.email || 'Miner'}</span>
+              ) : (
+                <span>Welcome, {userProfile?.full_name || user?.email || 'User'}</span>
+              )}
             </div>
           </div>
         </header>
@@ -186,9 +281,8 @@ function MinerDashboard({ onLogout }) {
               </div>
 
               {/* Overall System Status Card */}
-              <div className={`rounded-lg p-6 shadow-md ${
-                allSystemsNormal ? 'bg-green-500' : criticalCount > 0 ? 'bg-red-500' : 'bg-yellow-500'
-              } text-white`}>
+              <div className={`rounded-lg p-6 shadow-md ${allSystemsNormal ? 'bg-green-500' : criticalCount > 0 ? 'bg-red-500' : 'bg-yellow-500'
+                } text-white`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <div className="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
@@ -239,123 +333,8 @@ function MinerDashboard({ onLogout }) {
                 </div>
               </div>
 
-              {/* Sensor Data Cards */}
-              <div className="grid grid-cols-5 gap-4">
-                {/* MQ2 - Smoke & Gas */}
-                <div className="bg-white rounded-lg p-4 shadow-md">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl">🔥</span>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">MQ2</h4>
-                        <p className="text-xs text-gray-500">Smoke & Gas</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      mq2Status.status === 'safe' ? 'bg-green-100 text-green-800' :
-                      mq2Status.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {mq2Status.text}
-                    </span>
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">{sensorData.mq2.toFixed(1)} ppm</div>
-                  <div className="text-xs text-gray-500 mt-2">Status: Stable</div>
-                  <div className="text-xs text-gray-400 mt-1">W: 300 | C: 500</div>
-                </div>
-
-                {/* MQ9 - CO Level */}
-                <div className="bg-white rounded-lg p-4 shadow-md">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl">💨</span>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">MQ9</h4>
-                        <p className="text-xs text-gray-500">CO Level</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      mq9Status.status === 'safe' ? 'bg-green-100 text-green-800' :
-                      mq9Status.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {mq9Status.text}
-                    </span>
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">{sensorData.mq9.toFixed(1)} ppm</div>
-                  <div className="text-xs text-gray-500 mt-2">Status: Stable</div>
-                  <div className="text-xs text-gray-400 mt-1">W: 200 | C: 400</div>
-                </div>
-
-                {/* MQ135 - Air Quality */}
-                <div className="bg-white rounded-lg p-4 shadow-md">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl">💨</span>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">MQ135</h4>
-                        <p className="text-xs text-gray-500">Air Quality</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      mq135Status.status === 'safe' ? 'bg-green-100 text-green-800' :
-                      mq135Status.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {mq135Status.text}
-                    </span>
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">{sensorData.mq135.toFixed(1)} ppm</div>
-                  <div className="text-xs text-gray-500 mt-2">Status: Stable</div>
-                  <div className="text-xs text-gray-400 mt-1">W: 400 | C: 700</div>
-                </div>
-
-                {/* Temperature */}
-                <div className="bg-white rounded-lg p-4 shadow-md">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl">🌡️</span>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Temperature</h4>
-                        <p className="text-xs text-gray-500">HTU21D</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      tempStatus.status === 'safe' ? 'bg-green-100 text-green-800' :
-                      tempStatus.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {tempStatus.text}
-                    </span>
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">{sensorData.temperature.toFixed(1)} °C</div>
-                  <div className="text-xs text-gray-500 mt-2">Status: Stable</div>
-                  <div className="text-xs text-gray-400 mt-1">W: 35 | C: 45</div>
-                </div>
-
-                {/* Humidity */}
-                <div className="bg-white rounded-lg p-4 shadow-md">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-2xl">💧</span>
-                      <div>
-                        <h4 className="font-semibold text-gray-900">Humidity</h4>
-                        <p className="text-xs text-gray-500">HTU21D</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-1 rounded text-xs font-medium ${
-                      humidityStatus.status === 'safe' ? 'bg-green-100 text-green-800' :
-                      humidityStatus.status === 'warning' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {humidityStatus.text}
-                    </span>
-                  </div>
-                  <div className="text-2xl font-bold text-gray-900">{sensorData.humidity.toFixed(1)} %</div>
-                  <div className="text-xs text-gray-500 mt-2">Status: Stable</div>
-                  <div className="text-xs text-gray-400 mt-1">W: 80 | C: 95</div>
-                </div>
-              </div>
+              {/* Dashboard Charts Section */}
+              <DashboardCharts userId={userId} />
 
               {/* Bottom Information Cards */}
               <div className="grid grid-cols-2 gap-4">
@@ -379,15 +358,34 @@ function MinerDashboard({ onLogout }) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <div className="text-2xl font-bold text-green-600 mb-2">Active</div>
-                  <p className="text-sm text-gray-600">Current shift in progress</p>
+                  <div className={`text-2xl font-bold mb-2 ${isActive ? 'text-green-600' : 'text-gray-400'}`}>
+                    {isActive ? 'Active' : 'Inactive'}
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {isActive ? 'Current shift in progress' : 'No active shift'}
+                  </p>
                 </div>
               </div>
             </div>
           )}
 
+          {/* Sensor Metrics Page */}
+          {activePage === 'sensor-metrics' && (
+            <SensorMetrics userId={userId} />
+          )}
+
+          {/* Attendance Page */}
+          {activePage === 'attendance' && (
+            <Attendance userId={userId} />
+          )}
+
+          {/* Leave Application Page */}
+          {activePage === 'leave' && (
+            <LeaveApplication userId={userId} />
+          )}
+
           {/* Placeholder for other pages */}
-          {activePage !== 'dashboard' && (
+          {activePage !== 'dashboard' && activePage !== 'sensor-metrics' && activePage !== 'attendance' && activePage !== 'leave' && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">
