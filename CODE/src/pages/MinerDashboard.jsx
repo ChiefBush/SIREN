@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
-import LeaveApplication from './LeaveApplication'
+import MinerLeaveApplication from './MinerLeaveApplication'
 
 function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
   const navigate = useNavigate()
@@ -381,7 +381,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
 
           {/* Leave Application Page */}
           {activePage === 'leave' && (
-            <LeaveApplication userId={userId} />
+            <MinerLeaveApplication userId={userId} />
           )}
 
           {/* Placeholder for other pages */}

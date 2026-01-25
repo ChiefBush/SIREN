@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import MinerLogs from './MinerLogs'
 import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
-import LeaveApplication from './LeaveApplication'
+import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
 
 function SupervisorDashboard({ onLogout }) {
@@ -284,7 +284,7 @@ function SupervisorDashboard({ onLogout }) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
-    { id: 'leave', label: 'Leave Application', icon: '📝' },
+    { id: 'leave', label: 'Leave Management', icon: '📝' },
     { id: 'miner-logs', label: 'Miner Logs', icon: '📋' }
   ]
 
@@ -496,9 +496,9 @@ function SupervisorDashboard({ onLogout }) {
             <SensorMetrics />
           )}
 
-          {/* Leave Application Page */}
+          {/* Leave Management Page */}
           {activePage === 'leave' && (
-            <LeaveApplication /*userId={user?.id}*/ />
+            <SupervisorLeaveManagement />
           )}
 
           {/* Miner Logs Page */}
