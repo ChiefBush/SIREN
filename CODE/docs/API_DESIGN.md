@@ -135,8 +135,8 @@ GET /rest/v1/sensor_data?order=timestamp.desc&limit=1
     "mq2": 150.5,
     "mq9": 120.3,
     "mq135": 200.8,
-    "htu21d_temp": 25.5,
-    "htu21d_humidity": 60.2,
+    "dht11_temp": 25.5,
+    "dht11_humidity": 60.2,
     "timestamp": "2024-01-01T12:00:00Z",
     "device_id": "device_001",
     "location": "Mine A"
@@ -158,8 +158,8 @@ Content-Type: application/json
   "mq2": 150.5,
   "mq9": 120.3,
   "mq135": 200.8,
-  "htu21d_temp": 25.5,
-  "htu21d_humidity": 60.2,
+  "dht11_temp": 25.5,
+  "dht11_humidity": 60.2,
   "device_id": "device_001",
   "location": "Mine A"
 }
