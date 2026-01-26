@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import MinerLogs from './MinerLogs'
-import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
@@ -283,7 +282,6 @@ function SupervisorDashboard({ onLogout }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
     { id: 'leave', label: 'Leave Management', icon: '📝' },
     { id: 'miner-logs', label: 'Miner Logs', icon: '📋' }
   ]
@@ -491,10 +489,7 @@ function SupervisorDashboard({ onLogout }) {
             </div>
           )}
 
-          {/* Sensor Metrics Page */}
-          {activePage === 'sensor-metrics' && (
-            <SensorMetrics />
-          )}
+
 
           {/* Leave Management Page */}
           {activePage === 'leave' && (

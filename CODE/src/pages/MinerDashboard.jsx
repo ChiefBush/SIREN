@@ -177,7 +177,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
+    ...(isReadOnly ? [] : [{ id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' }]),
     { id: 'attendance', label: 'Attendance', icon: '🕐' },
     { id: 'leave', label: 'Leave Application', icon: '📝' }
   ]
@@ -370,7 +370,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
           )}
 
           {/* Sensor Metrics Page */}
-          {activePage === 'sensor-metrics' && (
+          {activePage === 'sensor-metrics' && !isReadOnly && (
             <SensorMetrics userId={userId} />
           )}
 
@@ -385,7 +385,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
           )}
 
           {/* Placeholder for other pages */}
-          {activePage !== 'dashboard' && activePage !== 'sensor-metrics' && activePage !== 'attendance' && activePage !== 'leave' && (
+          {activePage !== 'dashboard' && (activePage !== 'sensor-metrics' || isReadOnly) && activePage !== 'attendance' && activePage !== 'leave' && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">
