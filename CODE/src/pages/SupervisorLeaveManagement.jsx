@@ -5,6 +5,8 @@ function SupervisorLeaveManagement() {
     const [allApplications, setAllApplications] = useState([])
     const [loading, setLoading] = useState(true)
     const [filter, setFilter] = useState('all') // all, pending, accepted, rejected
+    const [confirmDialog, setConfirmDialog] = useState({ show: false, applicationId: null, action: null, minerName: null })
+    const [showSuccessMessage, setShowSuccessMessage] = useState(false)
 
     useEffect(() => {
         fetchAllLeaveApplications()
@@ -36,45 +38,85 @@ function SupervisorLeaveManagement() {
     const fetchAllLeaveApplications = async () => {
         setLoading(true)
         try {
+            console.log('fetching all leave applications...')
             // Supervisor sees all applications from all miners
+            // We use a robust select that handles the join to users table
             const { data, error } = await supabase
                 .from('leave_applications')
                 .select(`
-          *,
-          users(full_name, email, employee_id)
-        `)
+                    *,
+                    users!user_id (
+                        full_name,
+                        email,
+                        employee_id
+                    )
+                `)
                 .order('created_at', { ascending: false })
 
             if (error) {
                 console.error('Error fetching leave applications:', error)
+
+                // Fallback: try fetching without the join if join failed
+                if (error.message?.includes('users')) {
+                    console.log('Attempting fallback fetch without users join...')
+                    const { data: fallbackData, error: fallbackError } = await supabase
+                        .from('leave_applications')
+                        .select('*')
+                        .order('created_at', { ascending: false })
+
+                    if (fallbackError) {
+                        alert(`Failed to fetch: ${fallbackError.message}`)
+                    } else {
+                        setAllApplications(fallbackData || [])
+                    }
+                } else {
+                    alert(`Failed to fetch: ${error.message}`)
+                }
             } else {
+                console.log(`Successfully fetched ${data?.length || 0} leave applications`)
                 setAllApplications(data || [])
             }
         } catch (error) {
             console.error('Error in fetchAllLeaveApplications:', error)
+            alert('An unexpected error occurred while fetching applications.')
         } finally {
             setLoading(false)
         }
     }
 
-    const handleStatusUpdate = async (applicationId, newStatus) => {
+    const showConfirmation = (applicationId, action, minerName) => {
+        setConfirmDialog({ show: true, applicationId, action, minerName })
+    }
+
+    const handleConfirmAction = async () => {
+        const { applicationId, action } = confirmDialog
+        setConfirmDialog({ show: false, applicationId: null, action: null, minerName: null })
+
         try {
             const { error } = await supabase
                 .from('leave_applications')
-                .update({ status: newStatus })
+                .update({ status: action, updated_at: new Date().toISOString() })
                 .eq('id', applicationId)
 
             if (error) {
                 console.error('Error updating leave application status:', error)
                 alert('Failed to update status. Please try again.')
             } else {
+                // Show success message
+                setShowSuccessMessage(true)
+                setTimeout(() => setShowSuccessMessage(false), 3000)
+
                 // Refresh applications after update
                 fetchAllLeaveApplications()
             }
         } catch (error) {
-            console.error('Error in handleStatusUpdate:', error)
+            console.error('Error in handleConfirmAction:', error)
             alert('An error occurred. Please try again.')
         }
+    }
+
+    const handleCancelAction = () => {
+        setConfirmDialog({ show: false, applicationId: null, action: null, minerName: null })
     }
 
     const getStatusColor = (status) => {
@@ -196,8 +238,8 @@ function SupervisorLeaveManagement() {
                                 <button
                                     onClick={() => setFilter('all')}
                                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'all'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
                                 >
                                     All
@@ -205,8 +247,8 @@ function SupervisorLeaveManagement() {
                                 <button
                                     onClick={() => setFilter('pending')}
                                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'pending'
-                                            ? 'bg-yellow-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        ? 'bg-yellow-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
                                 >
                                     Pending
@@ -214,8 +256,8 @@ function SupervisorLeaveManagement() {
                                 <button
                                     onClick={() => setFilter('accepted')}
                                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'accepted'
-                                            ? 'bg-green-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
                                 >
                                     Accepted
@@ -223,8 +265,8 @@ function SupervisorLeaveManagement() {
                                 <button
                                     onClick={() => setFilter('rejected')}
                                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${filter === 'rejected'
-                                            ? 'bg-red-600 text-white'
-                                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        ? 'bg-red-600 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                         }`}
                                 >
                                     Rejected
@@ -336,13 +378,13 @@ function SupervisorLeaveManagement() {
                                                 {application.status === 'pending' ? (
                                                     <div className="flex space-x-2">
                                                         <button
-                                                            onClick={() => handleStatusUpdate(application.id, 'accepted')}
+                                                            onClick={() => showConfirmation(application.id, 'accepted', application.users?.full_name)}
                                                             className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
                                                         >
                                                             Accept
                                                         </button>
                                                         <button
-                                                            onClick={() => handleStatusUpdate(application.id, 'rejected')}
+                                                            onClick={() => showConfirmation(application.id, 'rejected', application.users?.full_name)}
                                                             className="px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
                                                         >
                                                             Reject
@@ -360,6 +402,54 @@ function SupervisorLeaveManagement() {
                     </div>
                 )}
             </div>
+
+            {/* Success Message */}
+            {showSuccessMessage && (
+                <div className="fixed top-4 right-4 bg-green-50 border border-green-200 text-green-800 px-6 py-4 rounded-lg shadow-lg z-50">
+                    <div className="flex items-center">
+                        <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                        <span className="font-medium">Leave application status updated successfully!</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Dialog */}
+            {confirmDialog.show && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <div className="mb-4">
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">
+                                Confirm {confirmDialog.action === 'accepted' ? 'Accept' : 'Reject'}
+                            </h3>
+                            <p className="text-gray-600">
+                                Are you sure you want to <span className="font-semibold">{confirmDialog.action === 'accepted' ? 'accept' : 'reject'}</span> the leave application
+                                {confirmDialog.minerName && (
+                                    <span> from <span className="font-semibold">{confirmDialog.minerName}</span></span>
+                                )}?
+                            </p>
+                        </div>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleCancelAction}
+                                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConfirmAction}
+                                className={`px-4 py-2 text-white rounded-lg transition-colors font-medium ${confirmDialog.action === 'accepted'
+                                    ? 'bg-green-600 hover:bg-green-700'
+                                    : 'bg-red-600 hover:bg-red-700'
+                                    }`}
+                            >
+                                Confirm {confirmDialog.action === 'accepted' ? 'Accept' : 'Reject'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

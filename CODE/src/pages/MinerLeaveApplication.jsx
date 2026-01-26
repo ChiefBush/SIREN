@@ -105,11 +105,14 @@ function MinerLeaveApplication({ userId = null }) {
                     }
                 ])
                 .select()
-                .single()
 
             if (error) {
                 console.error('Error submitting leave application:', error)
-                alert('Failed to submit leave application. Please try again.')
+                alert(`Failed to submit: ${error.message || 'Unknown error'}`)
+            } else if (!data || data.length === 0) {
+                console.error('No data returned after insert')
+                alert('Success, but could not verify submission. Please refresh the list.')
+                fetchLeaveApplications()
             } else {
                 // Show success message
                 setShowSuccessMessage(true)
@@ -125,7 +128,7 @@ function MinerLeaveApplication({ userId = null }) {
                 fetchLeaveApplications()
 
                 // Notify supervisor via real-time
-                notifySupervisor(data)
+                notifySupervisor(data[0])
             }
         } catch (error) {
             console.error('Error in handleSubmit:', error)
@@ -215,7 +218,7 @@ function MinerLeaveApplication({ userId = null }) {
 
             {/* Success Message */}
             {showSuccessMessage && (
-                <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg shadow-md">
+                <div className="fixed top-4 right-4 bg-green-50 border border-green-200 text-green-800 px-6 py-4 rounded-lg shadow-lg z-50">
                     <div className="flex items-center">
                         <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
