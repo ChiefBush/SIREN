@@ -1,7 +1,7 @@
 import { useSensorData } from '../hooks/useSensorData'
 import SensorCard from '../components/SensorCard'
 import SensorChart from '../components/SensorChart'
-import CombinedMQChart from '../components/CombinedMQChart'
+
 
 function SensorMetrics({ userId = null }) {
     const { sensorData, sensorHistory, loading, getSensorStatus } = useSensorData(userId, false)
@@ -167,13 +167,7 @@ function SensorMetrics({ userId = null }) {
                         height={300}
                     />
 
-                    {/* Combined MQ Chart - spans full width on large screens */}
-                    <div className="lg:col-span-2">
-                        <CombinedMQChart
-                            data={chartData}
-                            height={300}
-                        />
-                    </div>
+
                 </div>
             </div>
         </div>
