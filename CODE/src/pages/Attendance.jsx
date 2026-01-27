@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-function Attendance({ userId = null }) {
+function Attendance({ userId = null, isReadOnly = false }) {
     const [currentUser, setCurrentUser] = useState(null)
     const [attendance, setAttendance] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -381,7 +381,7 @@ function Attendance({ userId = null }) {
                         {isCheckedIn ? (
                             <button
                                 onClick={handleCheckOut}
-                                disabled={checkingOut}
+                                disabled={checkingOut || isReadOnly}
                                 className="w-full px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {checkingOut ? 'Checking Out...' : 'Check Out'}
@@ -389,7 +389,7 @@ function Attendance({ userId = null }) {
                         ) : (
                             <button
                                 onClick={handleCheckIn}
-                                disabled={checkingIn}
+                                disabled={checkingIn || isReadOnly}
                                 className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {checkingIn ? 'Checking In...' : 'Check In'}
@@ -401,7 +401,7 @@ function Attendance({ userId = null }) {
                         <p className="text-gray-600 mb-4">No attendance record for today</p>
                         <button
                             onClick={handleCheckIn}
-                            disabled={checkingIn}
+                            disabled={checkingIn || isReadOnly}
                             className="px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {checkingIn ? 'Checking In...' : 'Check In'}

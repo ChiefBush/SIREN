@@ -448,7 +448,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
 
           {/* Attendance Page */}
           {activePage === 'attendance' && (
-            <Attendance userId={userId} />
+            <Attendance userId={userId} isReadOnly={isReadOnly} />
           )}
 
           {/* Leave Application Page */}
