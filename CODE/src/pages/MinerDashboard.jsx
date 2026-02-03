@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
-import LeaveApplication from './LeaveApplication'
+import MinerLeaveApplication from './MinerLeaveApplication'
 
 function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
   const navigate = useNavigate()
@@ -177,9 +177,11 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
-    { id: 'attendance', label: 'Attendance', icon: '🕐' },
-    { id: 'leave', label: 'Leave Application', icon: '📝' }
+    ...(isReadOnly ? [] : [
+      { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
+      { id: 'leave', label: 'Leave Application', icon: '📝' }
+    ]),
+    { id: 'attendance', label: 'Attendance', icon: '🕐' }
   ]
 
   return (
@@ -333,10 +335,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
                 </div>
               </div>
 
-              {/* Dashboard Charts Section */}
-              <DashboardCharts userId={userId} />
-
-              {/* Bottom Information Cards */}
+              {/* Information Cards (Active Alerts & Shift Status) */}
               <div className="grid grid-cols-2 gap-4">
                 {/* Active Alerts */}
                 <div className="bg-white rounded-lg p-6 shadow-md">
@@ -366,26 +365,99 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
                   </p>
                 </div>
               </div>
+              {/* Health Monitoring Section */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Health Monitoring</h3>
+                  <p className="text-gray-600 mt-1">Real-time health data from connected watches</p>
+                </div>
+
+                <div className="bg-white rounded-lg shadow-md p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900">{userProfile?.full_name || 'N/A'}</h4>
+                      <p className="text-sm text-gray-500">{userProfile?.employee_id || 'N/A'}</p>
+                    </div>
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Heart Rate (BPM) */}
+                    <div className="border-l-4 border-red-500 pl-4 bg-gray-50 p-4 rounded-r-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Heart Rate</p>
+                          <p className="text-2xl font-bold text-gray-900 mt-1">
+                            <span className="text-red-600">--</span>
+                            <span className="text-sm text-gray-500 ml-1">BPM</span>
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                          <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2 italic">Placeholder - Watch data pending</p>
+                    </div>
+
+                    {/* SpO2 */}
+                    <div className="border-l-4 border-blue-500 pl-4 bg-gray-50 p-4 rounded-r-lg">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">SpO2</p>
+                          <p className="text-2xl font-bold text-gray-900 mt-1">
+                            <span className="text-blue-600">--</span>
+                            <span className="text-sm text-gray-500 ml-1">%</span>
+                          </p>
+                        </div>
+                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-2 italic">Placeholder - Watch data pending</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <div className="flex items-center text-xs text-gray-500">
+                      <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span>Last updated: --</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dashboard Charts Section */}
+              <DashboardCharts userId={userId} />
             </div>
           )}
 
           {/* Sensor Metrics Page */}
-          {activePage === 'sensor-metrics' && (
+          {activePage === 'sensor-metrics' && !isReadOnly && (
             <SensorMetrics userId={userId} />
           )}
 
           {/* Attendance Page */}
           {activePage === 'attendance' && (
-            <Attendance userId={userId} />
+            <Attendance userId={userId} isReadOnly={isReadOnly} />
           )}
 
           {/* Leave Application Page */}
-          {activePage === 'leave' && (
-            <LeaveApplication userId={userId} />
+          {activePage === 'leave' && !isReadOnly && (
+            <MinerLeaveApplication userId={userId} />
           )}
 
           {/* Placeholder for other pages */}
-          {activePage !== 'dashboard' && activePage !== 'sensor-metrics' && activePage !== 'attendance' && activePage !== 'leave' && (
+          {activePage !== 'dashboard' && (activePage !== 'sensor-metrics' || isReadOnly) && activePage !== 'attendance' && activePage !== 'leave' && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">

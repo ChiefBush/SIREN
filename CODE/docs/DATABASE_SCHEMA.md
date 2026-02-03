@@ -47,8 +47,8 @@ CREATE TABLE sensor_data (
   mq2 NUMERIC,
   mq9 NUMERIC,
   mq135 NUMERIC,
-  htu21d_temp NUMERIC,
-  htu21d_humidity NUMERIC,
+  dht11_temp NUMERIC,
+  dht11_humidity NUMERIC,
   timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   device_id TEXT,
   location TEXT
@@ -64,8 +64,8 @@ CREATE INDEX idx_sensor_data_device ON sensor_data(device_id);
 - `mq2`: MQ2 gas sensor reading
 - `mq9`: MQ9 gas sensor reading
 - `mq135`: MQ135 gas sensor reading
-- `htu21d_temp`: HTU21D temperature reading (°C)
-- `htu21d_humidity`: HTU21D humidity reading (%)
+- `dht11_temp`: DHT11 temperature reading (°C)
+- `dht11_humidity`: DHT11 humidity reading (%)
 - `timestamp`: Reading timestamp
 - `device_id`: IoT device identifier
 - `location`: Sensor location
@@ -96,7 +96,7 @@ CREATE INDEX idx_sensor_alerts_created ON sensor_alerts(created_at DESC);
 
 **Fields:**
 - `id`: Unique identifier
-- `sensor_type`: Type of sensor (mq2, mq9, mq135, htu21d_temp, htu21d_humidity, system)
+- `sensor_type`: Type of sensor (mq2, mq9, mq135, dht11_temp, dht11_humidity, system)
 - `value`: Sensor value that triggered alert
 - `threshold`: Threshold value that was exceeded
 - `status`: Alert status (warning, critical, acknowledged, resolved)

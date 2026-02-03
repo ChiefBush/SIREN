@@ -1,7 +1,7 @@
 import { useSensorData } from '../hooks/useSensorData'
 import SensorCard from '../components/SensorCard'
 import SensorChart from '../components/SensorChart'
-import CombinedMQChart from '../components/CombinedMQChart'
+
 
 function SensorMetrics({ userId = null }) {
     const { sensorData, sensorHistory, loading, getSensorStatus } = useSensorData(userId, false)
@@ -70,7 +70,7 @@ function SensorMetrics({ userId = null }) {
                 <SensorCard
                     icon="🌡️"
                     title="Temperature"
-                    subtitle="HTU21D"
+                    subtitle="DHT11"
                     value={sensorData.temperature}
                     unit="°C"
                     status={tempStatus}
@@ -80,7 +80,7 @@ function SensorMetrics({ userId = null }) {
                 <SensorCard
                     icon="💧"
                     title="Humidity"
-                    subtitle="HTU21D"
+                    subtitle="DHT11"
                     value={sensorData.humidity}
                     unit="%"
                     status={humidityStatus}
@@ -151,7 +151,7 @@ function SensorMetrics({ userId = null }) {
                     <SensorChart
                         data={chartData}
                         dataKey="temperature"
-                        name="Temperature (HTU21D)"
+                        name="Temperature (DHT11)"
                         color="#ef4444"
                         unit="°C"
                         height={300}
@@ -161,19 +161,13 @@ function SensorMetrics({ userId = null }) {
                     <SensorChart
                         data={chartData}
                         dataKey="humidity"
-                        name="Humidity (HTU21D)"
+                        name="Humidity (DHT11)"
                         color="#06b6d4"
                         unit="%"
                         height={300}
                     />
 
-                    {/* Combined MQ Chart - spans full width on large screens */}
-                    <div className="lg:col-span-2">
-                        <CombinedMQChart
-                            data={chartData}
-                            height={300}
-                        />
-                    </div>
+
                 </div>
             </div>
         </div>
