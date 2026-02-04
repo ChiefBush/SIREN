@@ -5,11 +5,8 @@ import MinerLogs from './MinerLogs'
 import DashboardCharts from '../components/DashboardCharts'
 import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
-<<<<<<< HEAD
 import Logo from '../components/Logo'
-=======
 import UserProfileModal from '../components/UserProfileModal'
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
 
 function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
@@ -23,7 +20,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   // Get sensor data for dashboard
-  const { sensorData, getSensorStatus } = useSensorData(null, false)
+  const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
 
   useEffect(() => {
     fetchUser()
@@ -359,27 +356,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-<<<<<<< HEAD
               <Logo className="h-10" />
-=======
-              {isAdminView && (
-                <button
-                  onClick={() => navigate('/admin')}
-                  className="mr-2 px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 text-sm font-medium flex items-center space-x-1"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                  </svg>
-                  <span>Back</span>
-                </button>
-              )}
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
+              <h1 className="text-2xl font-bold text-gray-900 ml-2">SIREN</h1>
             </div>
             <div className="text-gray-600 flex items-center space-x-4">
               {isAdminView && <span className="mr-2 px-2 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Admin View</span>}
@@ -441,6 +419,24 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           {activePage === 'dashboard' && (
             <div className="space-y-6">
+              {/* Global Emergency Alert Banner */}
+              {sensorData.emergency && (
+                <div className="bg-red-600 text-white p-4 rounded-lg shadow-lg flex items-center justify-between animate-pulse">
+                  <div className="flex items-center space-x-3">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <h3 className="text-xl font-bold">EMERGENCY ALERT</h3>
+                      <p className="text-sm opacity-90">Hardware emergency button pressed or fall detected on helmet node!</p>
+                    </div>
+                  </div>
+                  <div className="text-sm font-mono bg-white bg-opacity-20 px-3 py-1 rounded">
+                    ACTIVE
+                  </div>
+                </div>
+              )}
+
               {/* Page Title */}
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
@@ -461,7 +457,9 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                       <h3 className="text-2xl font-bold">
                         {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
-                      <p className="text-sm opacity-90 mt-1">Last updated: {formatTime(currentTime)}</p>
+                      <p className="text-sm opacity-90 mt-1">
+                        Last updated: {sensorHistory?.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                      </p>
                     </div>
                   </div>
                   {allSystemsNormal && (
@@ -501,7 +499,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
               </div>
 
               {/* Dashboard Charts Section */}
-              <DashboardCharts />
+              <DashboardCharts userId={null} userEmail={user?.email} />
 
               {/* Bottom Information Cards */}
               <div className="grid grid-cols-2 gap-4">

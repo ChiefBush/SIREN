@@ -10,8 +10,8 @@ import FallDetectionChart from './FallDetectionChart'
  * 2. DHT11 (Temperature + Humidity)
  * 3. Fall Detection (Accelerometer + Gyroscope)
  */
-function DashboardCharts({ userId = null }) {
-    const { sensorHistory, loading } = useSensorData(userId, false)
+function DashboardCharts({ userId = null, userEmail = null }) {
+    const { sensorHistory, loading } = useSensorData(userId, userEmail)
 
     if (loading) {
         return (

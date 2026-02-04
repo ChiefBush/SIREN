@@ -5,11 +5,9 @@ import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
 import MinerLeaveApplication from './MinerLeaveApplication'
-<<<<<<< HEAD
 import Logo from '../components/Logo'
-=======
 import UserProfileModal from '../components/UserProfileModal'
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
+import { useSensorData } from '../hooks/useSensorData'
 
 function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = false }) {
   const navigate = useNavigate()
@@ -20,14 +18,8 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
   const [isActive, setIsActive] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
-  // Synthetic sensor data
-  const [sensorData, setSensorData] = useState({
-    mq2: 0.0,
-    mq9: 0.0,
-    mq135: 0.0,
-    temperature: 0.0,
-    humidity: 0.0
-  })
+  // Fetch sensor data using the shared hook
+  const { sensorData, sensorHistory, loading: sensorsLoading, getSensorStatus } = useSensorData(userId || user?.id, userProfile?.email)
 
   // Fetch user profile - use userId prop if provided, else use logged-in user
   useEffect(() => {
@@ -129,20 +121,6 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
     return () => clearInterval(timer)
   }, [])
 
-  // Simulate sensor data updates
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setSensorData({
-        mq2: Math.random() * 200, // 0-200 ppm
-        mq9: Math.random() * 150, // 0-150 ppm
-        mq135: Math.random() * 300, // 0-300 ppm
-        temperature: 20 + Math.random() * 15, // 20-35°C
-        humidity: 40 + Math.random() * 40 // 40-80%
-      })
-    }, 5000) // Update every 5 seconds
-
-    return () => clearInterval(interval)
-  }, [])
 
   const handleLogout = async () => {
     if (isAdminView) {
@@ -156,12 +134,6 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
     }
   }
 
-  // Helper function to get sensor status
-  const getSensorStatus = (value, warningThreshold, criticalThreshold) => {
-    if (value >= criticalThreshold) return { status: 'critical', color: 'red', text: 'Critical' }
-    if (value >= warningThreshold) return { status: 'warning', color: 'yellow', text: 'Warning' }
-    return { status: 'safe', color: 'green', text: 'Safe' }
-  }
 
   // Calculate summary counts
   const mq2Status = getSensorStatus(sensorData.mq2, 300, 500)
@@ -256,18 +228,8 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                   <span>Back</span>
                 </button>
               )}
-<<<<<<< HEAD
               <Logo className="h-10" />
-              {isReadOnly && (
-=======
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
               {isReadOnly && !isAdminView && (
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
                 <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                   Read-Only View
                 </span>
@@ -308,6 +270,24 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           {activePage === 'dashboard' && (
             <div className="space-y-6">
+              {/* Emergency Alert Banner */}
+              {sensorData.emergency && (
+                <div className="bg-red-600 text-white p-4 rounded-lg shadow-lg flex items-center justify-between animate-pulse">
+                  <div className="flex items-center space-x-3">
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    <div>
+                      <h3 className="text-xl font-bold">EMERGENCY DETECTED</h3>
+                      <p className="text-sm opacity-90">An emergency signal has been triggered from your device!</p>
+                    </div>
+                  </div>
+                  <div className="text-sm font-mono bg-white bg-opacity-20 px-3 py-1 rounded">
+                    ACTIVE
+                  </div>
+                </div>
+              )}
+
               {/* Page Title */}
               <div>
                 <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
@@ -328,7 +308,9 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                       <h3 className="text-2xl font-bold">
                         {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
-                      <p className="text-sm opacity-90 mt-1">Last updated: {formatTime(currentTime)}</p>
+                      <p className="text-sm opacity-90 mt-1">
+                        Last updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                      </p>
                     </div>
                   </div>
                   {allSystemsNormal && (
@@ -410,10 +392,16 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                       <h4 className="text-lg font-semibold text-gray-900">{userProfile?.full_name || 'N/A'}</h4>
                       <p className="text-sm text-gray-500">{userProfile?.employee_id || 'N/A'}</p>
                     </div>
-                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                      <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
+                    <div className="flex items-center space-x-3">
+                      <div className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-semibold ${sensorData.wristbandConnected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        <div className={`w-2 h-2 rounded-full ${sensorData.wristbandConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                        <span>{sensorData.wristbandConnected ? 'Band Connected' : 'Band Disconnected'}</span>
+                      </div>
+                      <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
                     </div>
                   </div>
 
@@ -424,7 +412,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                         <div>
                           <p className="text-sm font-medium text-gray-600">Heart Rate</p>
                           <p className="text-2xl font-bold text-gray-900 mt-1">
-                            <span className="text-red-600">--</span>
+                            <span className="text-red-600">{sensorData.bpm || '--'}</span>
                             <span className="text-sm text-gray-500 ml-1">BPM</span>
                           </p>
                         </div>
@@ -443,7 +431,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                         <div>
                           <p className="text-sm font-medium text-gray-600">SpO2</p>
                           <p className="text-2xl font-bold text-gray-900 mt-1">
-                            <span className="text-blue-600">--</span>
+                            <span className="text-blue-600">{sensorData.spo2 || '--'}</span>
                             <span className="text-sm text-gray-500 ml-1">%</span>
                           </p>
                         </div>
@@ -462,20 +450,20 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                       <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      <span>Last updated: --</span>
+                      <span>Last updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : '--'}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Dashboard Charts Section */}
-              <DashboardCharts userId={userId} />
+              <DashboardCharts userId={userId} userEmail={userProfile?.email} />
             </div>
           )}
 
           {/* Sensor Metrics Page */}
           {activePage === 'sensor-metrics' && !isReadOnly && (
-            <SensorMetrics userId={userId} />
+            <SensorMetrics userId={userId} userEmail={userProfile?.email} />
           )}
 
           {/* Attendance Page */}

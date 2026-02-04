@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 function Attendance({ userId = null, isReadOnly = false }) {
@@ -11,60 +11,7 @@ function Attendance({ userId = null, isReadOnly = false }) {
     const [currentMonth, setCurrentMonth] = useState(new Date())
     const [history, setHistory] = useState({})
 
-    useEffect(() => {
-        const initialize = async () => {
-            await fetchUser()
-        }
-        initialize()
-
-        // Update time every second
-        const timer = setInterval(() => {
-            setCurrentTime(new Date())
-        }, 1000)
-
-        return () => clearInterval(timer)
-    }, [userId])
-
-    useEffect(() => {
-        if (currentUser) {
-            fetchTodayAttendance()
-            fetchMonthAttendance()
-        } else {
-            // If no user after a reasonable time, stop loading
-            const timeout = setTimeout(() => {
-                setLoading(false)
-            }, 2000)
-            return () => clearTimeout(timeout)
-        }
-    }, [currentUser, currentMonth])
-
-    // Subscribe to attendance changes for real-time updates
-    useEffect(() => {
-        const channel = supabase
-            .channel('attendance-changes')
-            .on(
-                'postgres_changes',
-                {
-                    event: '*',
-                    schema: 'public',
-                    table: 'attendance'
-                },
-                (payload) => {
-                    // Refresh attendance if it's for the current user
-                    if (currentUser && payload.new?.user_id === currentUser.id) {
-                        fetchTodayAttendance()
-                        fetchMonthAttendance()
-                    }
-                }
-            )
-            .subscribe()
-
-        return () => {
-            supabase.removeChannel(channel)
-        }
-    }, [currentUser])
-
-    const fetchUser = async () => {
+    const fetchUser = useCallback(async () => {
         try {
             if (userId) {
                 const { data: profile } = await supabase
@@ -98,9 +45,9 @@ function Attendance({ userId = null, isReadOnly = false }) {
             console.error('Error fetching user:', error)
             setLoading(false)
         }
-    }
+    }, [userId])
 
-    const fetchTodayAttendance = async () => {
+    const fetchTodayAttendance = useCallback(async () => {
         if (!currentUser) {
             setLoading(false)
             return
@@ -125,9 +72,9 @@ function Attendance({ userId = null, isReadOnly = false }) {
         } finally {
             setLoading(false)
         }
-    }
+    }, [currentUser])
 
-    const fetchMonthAttendance = async () => {
+    const fetchMonthAttendance = useCallback(async () => {
         if (!currentUser) return
 
         try {
@@ -153,7 +100,60 @@ function Attendance({ userId = null, isReadOnly = false }) {
         } catch (error) {
             console.error('Error in fetchMonthAttendance:', error)
         }
-    }
+    }, [currentUser, currentMonth])
+
+    useEffect(() => {
+        const initialize = async () => {
+            await fetchUser()
+        }
+        initialize()
+
+        // Update time every second
+        const timer = setInterval(() => {
+            setCurrentTime(new Date())
+        }, 1000)
+
+        return () => clearInterval(timer)
+    }, [userId, fetchUser])
+
+    useEffect(() => {
+        if (currentUser) {
+            fetchTodayAttendance()
+            fetchMonthAttendance()
+        } else {
+            // If no user after a reasonable time, stop loading
+            const timeout = setTimeout(() => {
+                setLoading(false)
+            }, 2000)
+            return () => clearTimeout(timeout)
+        }
+    }, [currentUser, currentMonth, fetchTodayAttendance, fetchMonthAttendance])
+
+    // Subscribe to attendance changes for real-time updates
+    useEffect(() => {
+        const channel = supabase
+            .channel('attendance-changes')
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'attendance'
+                },
+                (payload) => {
+                    // Refresh attendance if it's for the current user
+                    if (currentUser && payload.new?.user_id === currentUser.id) {
+                        fetchTodayAttendance()
+                        fetchMonthAttendance()
+                    }
+                }
+            )
+            .subscribe()
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [currentUser, fetchTodayAttendance, fetchMonthAttendance])
 
     // Calendar generation logic
     const getCalendarDays = () => {

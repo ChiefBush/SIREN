@@ -47,58 +47,24 @@ function FallDetectionChart({ data, height = 300, isDashboard = false }) {
                         contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px' }}
                     />
                     <Legend />
-                    {/* Accelerometer lines */}
+                    {/* Accelerometer line */}
                     <Line
                         type="monotone"
-                        dataKey="accelX"
+                        dataKey="accel"
                         stroke="#ef4444"
                         strokeWidth={isDashboard ? 2.5 : 2}
                         dot={false}
-                        name="Accel X"
+                        name="Accelerometer"
                     />
+                    {/* Gyroscope line */}
                     <Line
                         type="monotone"
-                        dataKey="accelY"
-                        stroke="#3b82f6"
-                        strokeWidth={isDashboard ? 2.5 : 2}
-                        dot={false}
-                        name="Accel Y"
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="accelZ"
-                        stroke="#10b981"
-                        strokeWidth={isDashboard ? 2.5 : 2}
-                        dot={false}
-                        name="Accel Z"
-                    />
-                    {/* Gyroscope lines */}
-                    <Line
-                        type="monotone"
-                        dataKey="gyroX"
+                        dataKey="gyro"
                         stroke="#f59e0b"
                         strokeWidth={isDashboard ? 2.5 : 2}
                         dot={false}
                         strokeDasharray="5 5"
-                        name="Gyro X"
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="gyroY"
-                        stroke="#8b5cf6"
-                        strokeWidth={isDashboard ? 2.5 : 2}
-                        dot={false}
-                        strokeDasharray="5 5"
-                        name="Gyro Y"
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="gyroZ"
-                        stroke="#ec4899"
-                        strokeWidth={isDashboard ? 2.5 : 2}
-                        dot={false}
-                        strokeDasharray="5 5"
-                        name="Gyro Z"
+                        name="Gyroscope"
                     />
                 </LineChart>
             </ResponsiveContainer>

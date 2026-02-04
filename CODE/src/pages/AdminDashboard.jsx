@@ -1,11 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-<<<<<<< HEAD
-import Logo from '../components/Logo'
-=======
 import { supabase } from '../lib/supabase'
+import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -43,7 +40,6 @@ function AdminDashboard({ onLogout }) {
         setUser(authUser)
         const { data: profile } = await supabase
           .from('users')
-          .from('users')
           .select('full_name, email, contact_number, blood_type, photo_url')
           .eq('id', authUser.id)
           .single()
@@ -59,7 +55,6 @@ function AdminDashboard({ onLogout }) {
   const fetchAllUsers = async () => {
     try {
       setLoading(true)
-      // We are fetching all users. In a real large app, we would paginate.
       const { data, error } = await supabase
         .from('users')
         .select('*')
@@ -70,8 +65,6 @@ function AdminDashboard({ onLogout }) {
       setUsers(data || [])
     } catch (error) {
       console.error('Error fetching logs:', error)
-      // Fallback mock data if table doesn't exist or error occurs
-      // This ensures the UI is visible even if backend setup isn't perfect
       setUsers([
         { id: '1', full_name: 'John Doe', role: 'miner', employee_id: 'MIN-001' },
         { id: '2', full_name: 'Jane Smith', role: 'supervisor', employee_id: 'SUP-001' },
@@ -91,8 +84,7 @@ function AdminDashboard({ onLogout }) {
 
   const handleAction = (action, targetUser) => {
     console.log(`${action} user:`, targetUser)
-    // Implement actual logic here later
-    setActiveMenuId(null) // Close menu
+    setActiveMenuId(null)
   }
 
   const filteredUsers = users.filter(user => {
@@ -105,15 +97,11 @@ function AdminDashboard({ onLogout }) {
       navigate(`/admin/miner/${userItem.id}`)
     } else if (userItem.role?.toLowerCase() === 'supervisor') {
       navigate(`/admin/supervisor/${userItem.id}`)
-    } else {
-      console.log('Detail view not available for role:', userItem.role)
     }
   }
 
-  // Menu items for Sidebar
   const menuItems = [
     { id: 'dashboard', label: 'User Logs', icon: '📋' },
-    // Add more admin items here if needed
   ]
 
   const getRoleBadgeColor = (role) => {
@@ -126,39 +114,17 @@ function AdminDashboard({ onLogout }) {
   }
 
   return (
-<<<<<<< HEAD
-    <div className="min-h-screen bg-gray-100">
-      {/* Header with Logout */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Logo className="h-10" />
-            <div className="hidden sm:block border-l border-gray-200 pl-4">
-              <p className="text-xl font-bold text-gray-900">Admin Dashboard</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 font-medium"
-            >
-              Logout
-            </button>
-=======
     <div className="flex h-screen bg-gray-50">
       {/* Left Sidebar */}
       <div className="w-64 bg-gray-800 text-white flex flex-col">
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-              </svg>
-            </div>
+            <Logo className="h-10" />
             <div>
               <h1 className="text-xl font-bold">SIREN</h1>
               <p className="text-xs text-gray-400">Admin Portal</p>
             </div>
->>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
           </div>
         </div>
 
@@ -221,7 +187,6 @@ function AdminDashboard({ onLogout }) {
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           <div className="space-y-6">
-
             {/* Filter Controls */}
             <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
               {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
@@ -287,7 +252,6 @@ function AdminDashboard({ onLogout }) {
                             </span>
                           </td>
                           <td className="px-6 py-4 text-right relative">
-                            {/* Actions Menu Container */}
                             <div
                               className="inline-block relative"
                               ref={activeMenuId === userItem.id ? menuRef : null}
@@ -302,7 +266,6 @@ function AdminDashboard({ onLogout }) {
                                 <span className="text-xl font-bold leading-none">⋮</span>
                               </button>
 
-                              {/* Dropdown Menu */}
                               {activeMenuId === userItem.id && (
                                 <div
                                   className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200 ring-1 ring-black ring-opacity-5"
@@ -334,19 +297,15 @@ function AdminDashboard({ onLogout }) {
                 Showing {filteredUsers.length} {roleFilter === 'All' ? 'users' : roleFilter.toLowerCase() + ' accounts'}
               </div>
             </div>
-
           </div>
         </main>
       </div>
 
-      {/* Profile Modal */}
       <UserProfileModal
         isOpen={isProfileOpen}
         onClose={() => setIsProfileOpen(false)}
         user={{ ...user, ...userProfile }}
-        onUpdate={() => {
-          fetchCurrentUser()
-        }}
+        onUpdate={() => fetchCurrentUser()}
       />
     </div>
   )
