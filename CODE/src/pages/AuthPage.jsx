@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import Logo from '../components/Logo'
 
 function AuthPage() {
   const [supabaseConfigured, setSupabaseConfigured] = useState(true)
@@ -9,7 +10,7 @@ function AuthPage() {
     // Check if Supabase is properly configured
     const url = process.env.REACT_APP_SUPABASE_URL
     const key = process.env.REACT_APP_SUPABASE_ANON_KEY
-    
+
     if (!url || !key || url === 'YOUR_SUPABASE_URL' || !url.startsWith('http')) {
       setSupabaseConfigured(false)
     }
@@ -174,24 +175,24 @@ function AuthPage() {
                   role: 'miner', // Default role
                 },
               ])
-              
+
               if (insertError) {
                 console.error('Error creating user record:', insertError)
               }
-              
+
               // Redirect to miner dashboard as default
               navigate('/miner', { replace: true })
             } else {
               // Log the raw data from database
               console.log('Raw user data from database:', userData)
               console.log('Raw role value:', userData?.role, 'Type:', typeof userData?.role)
-              
+
               // Normalize role to lowercase and ensure it's valid
               let userRole = (userData?.role || 'miner').toLowerCase().trim()
-              
+
               // Log after normalization
               console.log('Normalized role:', userRole)
-              
+
               // Validate role and map to correct dashboard route
               const validRoles = ['miner', 'supervisor', 'admin']
               if (!validRoles.includes(userRole)) {
@@ -200,15 +201,15 @@ function AuthPage() {
                 console.error('User data:', userData)
                 userRole = 'miner'
               }
-              
+
               console.log(`✅ User logged in with role: "${userRole}", redirecting to /${userRole}`)
-              
+
               // Store role in sessionStorage to help with route protection
               sessionStorage.setItem('userRole', userRole)
-              
+
               // Wait a bit longer to ensure App.jsx has time to update its state
               await new Promise(resolve => setTimeout(resolve, 300))
-              
+
               // Redirect to role-specific dashboard
               navigate(`/${userRole}`, { replace: true })
             }
@@ -248,7 +249,7 @@ function AuthPage() {
 
         // Normalize role to lowercase to match database constraint
         const normalizedRole = role.toLowerCase().trim()
-        
+
         // Validate role matches expected values
         if (!['miner', 'supervisor', 'admin'].includes(normalizedRole)) {
           throw new Error(`Invalid role selected. Please select a valid role.`)
@@ -276,10 +277,10 @@ function AuthPage() {
         // Verify it was created (with a small delay for trigger to complete)
         if (data.user) {
           console.log('Auth user created, waiting for trigger to create user record...')
-          
+
           // Wait a bit for the trigger to complete
           await new Promise(resolve => setTimeout(resolve, 500))
-          
+
           // Verify user record was created
           const { data: userData, error: fetchError } = await supabase
             .from('users')
@@ -295,9 +296,9 @@ function AuthPage() {
             console.log('User record created successfully by trigger:', userData)
           }
 
-          setMessage('Account created successfully! ' + 
-            (data.user?.email_confirmed_at 
-              ? 'You can now log in.' 
+          setMessage('Account created successfully! ' +
+            (data.user?.email_confirmed_at
+              ? 'You can now log in.'
               : 'Please check your email (and spam folder) for verification. If you don\'t receive it, email confirmation may be disabled in Supabase settings.'))
           setTimeout(() => {
             setIsLogin(true)
@@ -313,7 +314,7 @@ function AuthPage() {
     } catch (error) {
       console.error('Authentication error:', error)
       console.error('Error stack:', error.stack)
-      
+
       // Provide more specific error messages
       if (error.message?.includes('Invalid API key') || error.message?.includes('JWT')) {
         setError('Invalid API key: Please check your REACT_APP_SUPABASE_ANON_KEY in the .env file. Make sure you copied the complete "anon public" key from Supabase Settings → API. Then restart the server.')
@@ -337,14 +338,14 @@ function AuthPage() {
   const passwordValidation = !isLogin ? validatePassword(password) : null
   const isFormValid = !isLogin
     ? fullName.trim() &&
-      validateName(fullName) &&
-      email.trim() &&
-      validateEmail(email) &&
-      password &&
-      passwordValidation?.valid &&
-      confirmPassword &&
-      password === confirmPassword &&
-      role
+    validateName(fullName) &&
+    email.trim() &&
+    validateEmail(email) &&
+    password &&
+    passwordValidation?.valid &&
+    confirmPassword &&
+    password === confirmPassword &&
+    role
     : email.trim() && validateEmail(email) && password
 
   return (
@@ -352,10 +353,9 @@ function AuthPage() {
       <div className="max-w-md w-full bg-white rounded-lg shadow-xl p-8">
         {/* Header */}
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-primary-600 rounded-lg flex items-center justify-center mx-auto mb-4">
-            <span className="text-white text-3xl font-bold">S</span>
+          <div className="flex justify-center mb-4">
+            <Logo className="h-24" />
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">SIREN</h1>
           <p className="text-gray-600">Sensor based indicator for risk in environmental notification</p>
         </div>
 
@@ -369,11 +369,10 @@ function AuthPage() {
               setMessage('')
               setErrors({})
             }}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              isLogin
-                ? 'bg-white text-primary-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${isLogin
+              ? 'bg-white text-primary-600 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             Login
           </button>
@@ -385,11 +384,10 @@ function AuthPage() {
               setMessage('')
               setErrors({})
             }}
-            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-              !isLogin
-                ? 'bg-white text-primary-600 shadow-sm'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
+            className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-colors ${!isLogin
+              ? 'bg-white text-primary-600 shadow-sm'
+              : 'text-gray-600 hover:text-gray-900'
+              }`}
           >
             Sign Up
           </button>
@@ -401,7 +399,7 @@ function AuthPage() {
             <p className="font-semibold mb-2">⚠️ Supabase Not Configured</p>
             <p className="text-sm mb-2">Please create a <code className="bg-yellow-100 px-1 rounded">.env</code> file in the root directory with:</p>
             <pre className="text-xs bg-yellow-100 p-2 rounded overflow-x-auto">
-{`REACT_APP_SUPABASE_URL=your_url
+              {`REACT_APP_SUPABASE_URL=your_url
 REACT_APP_SUPABASE_ANON_KEY=your_key`}
             </pre>
             <p className="text-sm mt-2">Then restart the development server.</p>
@@ -435,9 +433,8 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
                   value={fullName}
                   onChange={handleNameChange}
                   required
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                    errors.fullName ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.fullName ? 'border-red-500' : 'border-gray-300'
+                    }`}
                   placeholder="Enter your full name (letters only)"
                 />
                 {errors.fullName && (
@@ -454,9 +451,8 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   required
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                    errors.role ? 'border-red-500' : 'border-gray-300'
-                  }`}
+                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.role ? 'border-red-500' : 'border-gray-300'
+                    }`}
                 >
                   <option value="">Select your role</option>
                   <option value="miner">Miner</option>
@@ -478,9 +474,8 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                errors.email ? 'border-red-500' : 'border-gray-300'
-              }`}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.email ? 'border-red-500' : 'border-gray-300'
+                }`}
               placeholder="Enter your email"
             />
             {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email}</p>}
@@ -496,9 +491,8 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                errors.password ? 'border-red-500' : 'border-gray-300'
-              }`}
+              className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.password ? 'border-red-500' : 'border-gray-300'
+                }`}
               placeholder="Enter your password"
             />
             {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password}</p>}
@@ -541,9 +535,8 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
-                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${
-                  errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                }`}
+                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                  }`}
                 placeholder="Confirm your password"
               />
               {errors.confirmPassword && (

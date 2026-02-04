@@ -5,6 +5,7 @@ import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
 import MinerLeaveApplication from './MinerLeaveApplication'
+import Logo from '../components/Logo'
 
 function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
   const navigate = useNavigate()
@@ -191,14 +192,9 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-              </svg>
-            </div>
+            <Logo className="h-10" />
             <div>
-              <h1 className="text-xl font-bold">SIREN</h1>
-              <p className="text-xs text-gray-400">Safety Monitoring</p>
+              <p className="text-xs text-gray-400 uppercase tracking-tighter font-bold">Safety Monitoring</p>
             </div>
           </div>
         </div>
@@ -250,12 +246,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
                   <span>Back</span>
                 </button>
               )}
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                </svg>
-              </div>
-              <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
+              <Logo className="h-10" />
               {isReadOnly && (
                 <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                   Read-Only View

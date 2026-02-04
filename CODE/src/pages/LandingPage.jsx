@@ -1,24 +1,23 @@
 import { Link } from 'react-router-dom'
+import Logo from '../components/Logo'
 
 function LandingPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
-      <header className="bg-white shadow-sm">
+      <header className="bg-blue-900 shadow-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex justify-between items-center">
-            <div className="flex items-center space-x-3">
-              <div className="w-12 h-12 bg-primary-600 rounded-lg flex items-center justify-center">
-                <span className="text-white text-2xl font-bold">S</span>
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
-                <p className="text-sm text-gray-600">Sensor based indicator for risk in environmental notification</p>
+            <div className="flex items-center space-x-4">
+              <Logo className="h-16" />
+              <div className="hidden sm:block border-l border-blue-700 pl-4">
+                <p className="text-xs text-blue-200 uppercase tracking-tighter font-bold">Safety First</p>
+                <p className="text-sm text-blue-100">Environmental Risk Monitoring</p>
               </div>
             </div>
             <Link
               to="/auth"
-              className="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-500 transition-colors shadow-lg font-semibold"
             >
               Login / Sign Up
             </Link>
@@ -48,13 +47,13 @@ function LandingPage() {
           <h3 className="text-3xl font-bold text-gray-900 mb-6 text-center">About the Project</h3>
           <div className="bg-white rounded-lg shadow-md p-8">
             <p className="text-gray-700 leading-relaxed mb-4">
-              SIREN (Sensor based indicator for risk in environmental notification) is a comprehensive 
-              safety and workforce management web application designed specifically for miners and firefighters. 
-              The system integrates real-time IoT sensor data with workforce monitoring to ensure the safety 
+              SIREN (Sensor based indicator for risk in environmental notification) is a comprehensive
+              safety and workforce management web application designed specifically for miners and firefighters.
+              The system integrates real-time IoT sensor data with workforce monitoring to ensure the safety
               and well-being of workers in hazardous environments.
             </p>
             <p className="text-gray-700 leading-relaxed">
-              Our mission is to provide real-time environmental monitoring, workforce tracking, and safety 
+              Our mission is to provide real-time environmental monitoring, workforce tracking, and safety
               management tools that help prevent accidents and ensure quick response to emergencies.
             </p>
           </div>

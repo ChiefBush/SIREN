@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom'
+import Logo from '../components/Logo'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -16,7 +17,10 @@ function AdminDashboard({ onLogout }) {
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+            <Logo className="h-10" />
+            <div className="hidden sm:block border-l border-gray-200 pl-4">
+              <p className="text-xl font-bold text-gray-900">Admin Dashboard</p>
+            </div>
             <button
               onClick={handleLogout}
               className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 font-medium"
