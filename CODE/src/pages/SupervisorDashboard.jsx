@@ -5,9 +5,13 @@ import MinerLogs from './MinerLogs'
 import DashboardCharts from '../components/DashboardCharts'
 import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
+<<<<<<< HEAD
 import Logo from '../components/Logo'
+=======
+import UserProfileModal from '../components/UserProfileModal'
+>>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
 
-function SupervisorDashboard({ onLogout }) {
+function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
   const [activePage, setActivePage] = useState('dashboard')
   const [user, setUser] = useState(null)
@@ -16,6 +20,7 @@ function SupervisorDashboard({ onLogout }) {
   const [miners, setMiners] = useState([])
   const [activeStatuses, setActiveStatuses] = useState({})
   const [notifications, setNotifications] = useState([])
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   // Get sensor data for dashboard
   const { sensorData, getSensorStatus } = useSensorData(null, false)
@@ -185,16 +190,31 @@ function SupervisorDashboard({ onLogout }) {
 
   const fetchUser = async () => {
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
-      if (authUser) {
-        setUser(authUser)
+      if (userId) {
+        // Fetch specific user profile if userId is provided
         const { data: profile } = await supabase
           .from('users')
-          .select('full_name, email')
-          .eq('id', authUser.id)
+          .select('full_name, email, id, contact_number, blood_type, photo_url')
+          .eq('id', userId)
           .single()
+
         if (profile) {
+          setUser({ id: profile.id, email: profile.email })
           setUserProfile(profile)
+        }
+      } else {
+        // Default: fetch logged-in user
+        const { data: { user: authUser } } = await supabase.auth.getUser()
+        if (authUser) {
+          setUser(authUser)
+          const { data: profile } = await supabase
+            .from('users')
+            .select('full_name, email, contact_number, blood_type, photo_url')
+            .eq('id', authUser.id)
+            .single()
+          if (profile) {
+            setUserProfile(profile)
+          }
         }
       }
     } catch (error) {
@@ -248,6 +268,10 @@ function SupervisorDashboard({ onLogout }) {
   }
 
   const handleLogout = async () => {
+    if (isAdminView) {
+      navigate('/admin')
+      return
+    }
     if (onLogout) {
       await onLogout()
     }
@@ -322,9 +346,9 @@ function SupervisorDashboard({ onLogout }) {
         <div className="p-4 border-t border-gray-700">
           <button
             onClick={handleLogout}
-            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+            className={`w-full px-4 py-2 ${isAdminView ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg transition-colors font-medium`}
           >
-            Logout
+            {isAdminView ? 'Back to Admin' : 'Logout'}
           </button>
         </div>
       </div>
@@ -335,10 +359,45 @@ function SupervisorDashboard({ onLogout }) {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
+<<<<<<< HEAD
               <Logo className="h-10" />
+=======
+              {isAdminView && (
+                <button
+                  onClick={() => navigate('/admin')}
+                  className="mr-2 px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 text-sm font-medium flex items-center space-x-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                  <span>Back</span>
+                </button>
+              )}
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                </svg>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
+>>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
             </div>
-            <div className="text-gray-600">
-              Welcome, {userProfile?.full_name || user?.email || 'Supervisor'}
+            <div className="text-gray-600 flex items-center space-x-4">
+              {isAdminView && <span className="mr-2 px-2 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Admin View</span>}
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+                  {userProfile?.photo_url ? (
+                    <img src={userProfile.photo_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                      {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                    </div>
+                  )}
+                </div>
+                <span className="font-medium">{userProfile?.full_name || user?.email || 'Supervisor'}</span>
+              </button>
             </div>
           </div>
         </header>
@@ -493,6 +552,21 @@ function SupervisorDashboard({ onLogout }) {
           )}
         </main>
       </div>
+
+      {/* Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={{ ...user, ...userProfile }}
+        onUpdate={() => {
+          // Re-fetch user data logic
+          const targetUserId = userId || user?.id
+          if (targetUserId) {
+            supabase.from('users').select('*').eq('id', targetUserId).single()
+              .then(({ data }) => { if (data) setUserProfile(data) })
+          }
+        }}
+      />
     </div>
   )
 }

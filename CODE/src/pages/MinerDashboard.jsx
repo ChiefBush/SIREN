@@ -5,15 +5,20 @@ import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
 import MinerLeaveApplication from './MinerLeaveApplication'
+<<<<<<< HEAD
 import Logo from '../components/Logo'
+=======
+import UserProfileModal from '../components/UserProfileModal'
+>>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
 
-function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
+function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = false }) {
   const navigate = useNavigate()
   const [activePage, setActivePage] = useState('dashboard')
   const [user, setUser] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
   const [currentTime, setCurrentTime] = useState(new Date())
   const [isActive, setIsActive] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   // Synthetic sensor data
   const [sensorData, setSensorData] = useState({
@@ -31,7 +36,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
         // Fetch specific user by userId (for supervisor view)
         const { data: profile } = await supabase
           .from('users')
-          .select('id, full_name, email')
+          .select('id, full_name, email, contact_number, blood_type, photo_url')
           .eq('id', userId)
           .single()
         if (profile) {
@@ -46,7 +51,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
           // Fetch user profile
           const { data: profile } = await supabase
             .from('users')
-            .select('full_name, email')
+            .select('full_name, email, contact_number, blood_type, photo_url')
             .eq('id', authUser.id)
             .single()
           if (profile) {
@@ -140,6 +145,10 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
   }, [])
 
   const handleLogout = async () => {
+    if (isAdminView) {
+      navigate('/admin')
+      return
+    }
     // Only allow logout if not in read-only mode
     if (!isReadOnly && onLogout) {
       await onLogout()
@@ -178,7 +187,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    ...(isReadOnly ? [] : [
+    ...((isReadOnly && !isAdminView) ? [] : [
       { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
       { id: 'leave', label: 'Leave Application', icon: '📝' }
     ]),
@@ -217,13 +226,14 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
         </nav>
 
         {/* Logout Button - only show if not read-only */}
-        {!isReadOnly && (
+        {/* Logout Button - only show if not read-only OR if admin view */}
+        {(!isReadOnly || isAdminView) && (
           <div className="p-4 border-t border-gray-700">
             <button
               onClick={handleLogout}
-              className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+              className={`w-full px-4 py-2 ${isAdminView ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg transition-colors font-medium`}
             >
-              Logout
+              {isAdminView ? 'Back to Admin' : 'Logout'}
             </button>
           </div>
         )}
@@ -235,9 +245,9 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              {isReadOnly && (
+              {(isReadOnly || isAdminView) && (
                 <button
-                  onClick={() => navigate('/supervisor')}
+                  onClick={() => navigate(isAdminView ? '/admin' : '/supervisor')}
                   className="mr-2 px-3 py-1.5 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200 text-sm font-medium flex items-center space-x-1"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -246,18 +256,49 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
                   <span>Back</span>
                 </button>
               )}
+<<<<<<< HEAD
               <Logo className="h-10" />
               {isReadOnly && (
+=======
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                </svg>
+              </div>
+              <h1 className="text-2xl font-bold text-gray-900">SIREN</h1>
+              {isReadOnly && !isAdminView && (
+>>>>>>> 831d0d486641ce45cbd0ce918a2888fd290c39fb
                 <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                   Read-Only View
                 </span>
               )}
+              {isAdminView && (
+                <span className="ml-3 px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">
+                  Admin View
+                </span>
+              )}
             </div>
-            <div className="text-gray-600">
+            <div className="text-gray-600 flex items-center space-x-4">
               {isReadOnly ? (
                 <span>Viewing: {userProfile?.full_name || user?.email || 'Miner'}</span>
               ) : (
-                <span>Welcome, {userProfile?.full_name || user?.email || 'User'}</span>
+                <>
+                  <button
+                    onClick={() => setIsProfileOpen(true)}
+                    className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+                      {userProfile?.photo_url ? (
+                        <img src={userProfile.photo_url} alt="Profile" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                          {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-medium">{userProfile?.full_name || user?.email || 'User'}</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -448,7 +489,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
           )}
 
           {/* Placeholder for other pages */}
-          {activePage !== 'dashboard' && (activePage !== 'sensor-metrics' || isReadOnly) && activePage !== 'attendance' && activePage !== 'leave' && (
+          {activePage !== 'dashboard' && (activePage !== 'sensor-metrics' || (isReadOnly && !isAdminView)) && activePage !== 'attendance' && activePage !== 'leave' && (
             <div className="flex items-center justify-center h-full">
               <div className="text-center">
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">
@@ -460,6 +501,31 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false }) {
           )}
         </main>
       </div>
+
+      {/* Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={{ ...user, ...userProfile }}
+        onUpdate={() => {
+          // Re-fetch user data
+          const fetchUser = async () => {
+            // We can duplicate the logic or extract it. 
+            // Currently simplest is to trigger the effect dependency or just copy the fetch logic here locally for quick update
+            // Or better, move fetchUser outside useEffect but that requires refactoring.
+            // For now, I'll rely on a hacky reload or better: just let the user know success. 
+            // Actually, the modal calls onUpdate. I should try to refresh the profile in 'userProfile' state.
+
+            // Re-fetching logic:
+            const targetId = userId || user?.id
+            if (targetId) {
+              const { data: profile } = await supabase.from('users').select('*').eq('id', targetId).single()
+              if (profile) setUserProfile(profile)
+            }
+          }
+          fetchUser()
+        }}
+      />
     </div>
   )
 }
