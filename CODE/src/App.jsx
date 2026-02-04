@@ -7,6 +7,7 @@ import MinerDashboard from './pages/MinerDashboard'
 import SupervisorDashboard from './pages/SupervisorDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import MinerView from './pages/MinerView'
+import { AdminMinerView, AdminSupervisorView } from './pages/AdminViews'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -72,13 +73,13 @@ function App() {
       } else {
         console.log('📊 User data from database:', data)
         console.log('📊 Raw role value:', data?.role, 'Type:', typeof data?.role)
-        
+
         // Normalize role to lowercase to ensure it matches route protection
         const role = (data?.role || 'miner').toLowerCase().trim()
         const validRoles = ['miner', 'supervisor', 'admin']
-        
+
         console.log('📊 Normalized role:', role)
-        
+
         // Validate role
         if (validRoles.includes(role)) {
           console.log(`✅ Setting userRole to: "${role}"`)
@@ -141,19 +142,19 @@ function App() {
       <Routes>
         {/* Landing page - always accessible */}
         <Route path="/" element={<LandingPage />} />
-        
+
         {/* Auth page - redirect to dashboard if already logged in */}
-        <Route 
-          path="/auth" 
+        <Route
+          path="/auth"
           element={
             user && getCurrentRole() ? (
               <Navigate to={`/${getCurrentRole()}`} replace />
             ) : (
               <AuthPage />
             )
-          } 
+          }
         />
-        
+
         {/* Protected role-based dashboards */}
         <Route
           path="/miner"
@@ -195,7 +196,27 @@ function App() {
             )
           }
         />
-        
+        <Route
+          path="/admin/miner/:minerId"
+          element={
+            user && getCurrentRole() === 'admin' ? (
+              <AdminMinerView onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/auth" />
+            )
+          }
+        />
+        <Route
+          path="/admin/supervisor/:supervisorId"
+          element={
+            user && getCurrentRole() === 'admin' ? (
+              <AdminSupervisorView onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/auth" />
+            )
+          }
+        />
+
         {/* Catch all - redirect to landing */}
         <Route path="*" element={<Navigate to="/" />} />
       </Routes>

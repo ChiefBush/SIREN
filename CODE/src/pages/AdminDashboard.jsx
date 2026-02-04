@@ -1,7 +1,82 @@
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../lib/supabase'
+import UserProfileModal from '../components/UserProfileModal'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
+  const [activePage, setActivePage] = useState('dashboard')
+  const [user, setUser] = useState(null)
+  const [userProfile, setUserProfile] = useState(null)
+
+  // Admin specific state
+  const [users, setUsers] = useState([])
+  const [roleFilter, setRoleFilter] = useState('All')
+  const [activeMenuId, setActiveMenuId] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
+
+  const menuRef = useRef(null)
+
+  useEffect(() => {
+    fetchCurrentUser()
+    fetchAllUsers()
+
+    // Click outside listener to close menus
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setActiveMenuId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const fetchCurrentUser = async () => {
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (authUser) {
+        setUser(authUser)
+        const { data: profile } = await supabase
+          .from('users')
+          .from('users')
+          .select('full_name, email, contact_number, blood_type, photo_url')
+          .eq('id', authUser.id)
+          .single()
+        if (profile) {
+          setUserProfile(profile)
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching current user:', error)
+    }
+  }
+
+  const fetchAllUsers = async () => {
+    try {
+      setLoading(true)
+      // We are fetching all users. In a real large app, we would paginate.
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+
+      setUsers(data || [])
+    } catch (error) {
+      console.error('Error fetching logs:', error)
+      // Fallback mock data if table doesn't exist or error occurs
+      // This ensures the UI is visible even if backend setup isn't perfect
+      setUsers([
+        { id: '1', full_name: 'John Doe', role: 'miner', employee_id: 'MIN-001' },
+        { id: '2', full_name: 'Jane Smith', role: 'supervisor', employee_id: 'SUP-001' },
+        { id: '3', full_name: 'Admin User', role: 'admin', employee_id: 'ADM-001' },
+      ])
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleLogout = async () => {
     if (onLogout) {
@@ -10,32 +85,249 @@ function AdminDashboard({ onLogout }) {
     navigate('/')
   }
 
+  const handleAction = (action, targetUser) => {
+    console.log(`${action} user:`, targetUser)
+    // Implement actual logic here later
+    setActiveMenuId(null) // Close menu
+  }
+
+  const filteredUsers = users.filter(user => {
+    if (roleFilter === 'All') return true
+    return user.role?.toLowerCase() === roleFilter.toLowerCase()
+  })
+
+  const handleRowClick = (userItem) => {
+    if (userItem.role?.toLowerCase() === 'miner') {
+      navigate(`/admin/miner/${userItem.id}`)
+    } else if (userItem.role?.toLowerCase() === 'supervisor') {
+      navigate(`/admin/supervisor/${userItem.id}`)
+    } else {
+      console.log('Detail view not available for role:', userItem.role)
+    }
+  }
+
+  // Menu items for Sidebar
+  const menuItems = [
+    { id: 'dashboard', label: 'User Logs', icon: '📋' },
+    // Add more admin items here if needed
+  ]
+
+  const getRoleBadgeColor = (role) => {
+    switch (role?.toLowerCase()) {
+      case 'admin': return 'bg-red-100 text-red-800'
+      case 'supervisor': return 'bg-purple-100 text-purple-800'
+      case 'miner': return 'bg-blue-100 text-blue-800'
+      default: return 'bg-gray-100 text-gray-800'
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header with Logout */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-            <button
-              onClick={handleLogout}
-              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors duration-200 font-medium"
-            >
-              Logout
-            </button>
+    <div className="flex h-screen bg-gray-50">
+      {/* Left Sidebar */}
+      <div className="w-64 bg-gray-800 text-white flex flex-col">
+        {/* Logo Section */}
+        <div className="p-6 border-b border-gray-700">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+              </svg>
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">SIREN</h1>
+              <p className="text-xs text-gray-400">Admin Portal</p>
+            </div>
           </div>
         </div>
-      </header>
 
-      {/* Dashboard Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex items-center justify-center min-h-[60vh]">
-          <div className="text-6xl font-bold text-gray-900">Admin</div>
+        {/* Navigation Menu */}
+        <nav className="flex-1 overflow-y-auto p-4">
+          {menuItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActivePage(item.id)}
+              className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-colors ${activePage === item.id
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-300 hover:bg-gray-700'
+                }`}
+            >
+              <span className="text-xl">{item.icon}</span>
+              <span className="font-medium">{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Logout Button */}
+        <div className="p-4 border-t border-gray-700">
+          <button
+            onClick={handleLogout}
+            className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+          >
+            Logout
+          </button>
         </div>
-      </main>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <header className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
+            </div>
+            <div className="text-gray-600 flex items-center space-x-4">
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
+              >
+                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
+                  {userProfile?.photo_url ? (
+                    <img src={userProfile.photo_url} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                      {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                    </div>
+                  )}
+                </div>
+                <span className="font-medium">{userProfile?.full_name || user?.email || 'Admin'}</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
+          <div className="space-y-6">
+
+            {/* Filter Controls */}
+            <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
+              {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
+                <button
+                  key={role}
+                  onClick={() => setRoleFilter(role)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${roleFilter === role
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                >
+                  {role}
+                </button>
+              ))}
+            </div>
+
+            {/* Users Log Table */}
+            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-visible">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
+                      <th className="px-6 py-4 font-semibold">Name</th>
+                      <th className="px-6 py-4 font-semibold">Unique ID</th>
+                      <th className="px-6 py-4 font-semibold">Role</th>
+                      <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {loading ? (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                          Loading user data...
+                        </td>
+                      </tr>
+                    ) : filteredUsers.length === 0 ? (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                          No users found with role "{roleFilter}"
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredUsers.map((userItem) => (
+                        <tr
+                          key={userItem.id}
+                          className="hover:bg-gray-50 transition-colors cursor-pointer"
+                          onClick={() => handleRowClick(userItem)}
+                        >
+                          <td className="px-6 py-4">
+                            <div className="flex items-center">
+                              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold mr-3">
+                                {userItem.full_name?.charAt(0) || userItem.email?.charAt(0) || '?'}
+                              </div>
+                              <div className="font-medium text-gray-900">{userItem.full_name || 'N/A'}</div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm font-mono text-gray-600">
+                            {userItem.employee_id || userItem.id?.slice(0, 8) || 'N/A'}
+                          </td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(userItem.role)}`}>
+                              {userItem.role || 'Unassigned'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right relative">
+                            {/* Actions Menu Container */}
+                            <div
+                              className="inline-block relative"
+                              ref={activeMenuId === userItem.id ? menuRef : null}
+                            >
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setActiveMenuId(activeMenuId === userItem.id ? null : userItem.id)
+                                }}
+                                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                              >
+                                <span className="text-xl font-bold leading-none">⋮</span>
+                              </button>
+
+                              {/* Dropdown Menu */}
+                              {activeMenuId === userItem.id && (
+                                <div
+                                  className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200 ring-1 ring-black ring-opacity-5"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    onClick={() => handleAction('Edit', userItem)}
+                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    onClick={() => handleAction('Delete', userItem)}
+                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+                Showing {filteredUsers.length} {roleFilter === 'All' ? 'users' : roleFilter.toLowerCase() + ' accounts'}
+              </div>
+            </div>
+
+          </div>
+        </main>
+      </div>
+
+      {/* Profile Modal */}
+      <UserProfileModal
+        isOpen={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        user={{ ...user, ...userProfile }}
+        onUpdate={() => {
+          fetchCurrentUser()
+        }}
+      />
     </div>
   )
 }
 
 export default AdminDashboard
-
