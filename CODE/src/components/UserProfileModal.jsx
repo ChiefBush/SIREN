@@ -14,6 +14,12 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState(null)
 
+    // Check if profile is already completed (and user is not an admin viewing/editing)
+    // If isAdminView is true, we allow editing regardless of completion status
+    // If isAdminView is false, we check the flag.
+    // ADDED: If the user IS an admin (role === 'admin'), they are never locked out of their own profile.
+    const isProfileLocked = !isAdminView && user?.is_profile_completed && user?.role !== 'admin';
+
     useEffect(() => {
         if (user && isOpen) {
             setFormData({
@@ -35,7 +41,6 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
         setFormData(prev => ({ ...prev, [name]: value }))
     }
 
-
     const handleSubmit = async (e) => {
         e.preventDefault()
         setLoading(true)
@@ -48,7 +53,13 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                 emergency_contact_2: formData.emergency_contact_2,
                 blood_type: formData.blood_type,
                 employee_id: formData.employee_id,
-                role: formData.role
+                role: formData.role,
+                // Automatically mark as completed if it wasn't already
+                // Only if not admin view (admins don't change the completion status usually, or maybe they do? 
+                // Let's say admins don't change it, or we just always set it to true if it's a first time update)
+                // Actually, if a user updates, it should be marked completed.
+                // If admin updates, it's fine to keep it completed or mark it.
+                is_profile_completed: true
             }
 
             const { error } = await supabase
@@ -62,7 +73,12 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
             onClose()
         } catch (err) {
             console.error('Error updating profile:', err)
-            setError(err.message || 'Failed to update profile. Please try again.')
+            // Handle row-level security policy violation
+            if (err.message && err.message.includes('row-level security policy')) {
+                setError('Contact admin to make changes')
+            } else {
+                setError(err.message || 'Failed to update profile. Please try again.')
+            }
         } finally {
             setLoading(false)
         }
@@ -72,7 +88,9 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-lg shadow-xl w-full max-w-md flex flex-col max-h-[90vh]">
                 <div className="flex justify-between items-center p-6 border-b border-gray-200 shrink-0">
-                    <h2 className="text-xl font-bold text-gray-900">Edit Profile</h2>
+                    <h2 className="text-xl font-bold text-gray-900">
+                        {isProfileLocked ? 'Profile Details' : 'Edit Profile'}
+                    </h2>
                     <button
                         onClick={onClose}
                         className="text-gray-400 hover:text-gray-600 focus:outline-none"
@@ -84,6 +102,23 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                 </div>
 
                 <div className="overflow-y-auto p-6 space-y-4">
+                    {isProfileLocked && (
+                        <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <svg className="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                                    </svg>
+                                </div>
+                                <div className="ml-3">
+                                    <p className="text-sm text-yellow-700">
+                                        Your profile is locked. To make changes, please contact your administrator.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <form id="profile-form" onSubmit={handleSubmit} className="space-y-4">
                         {error && (
                             <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm border border-red-200">
@@ -107,7 +142,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                                 name="employee_id"
                                 value={formData.employee_id}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                disabled={isProfileLocked || !isAdminView} // Employee ID usually shouldn't be changed by users anyway
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProfileLocked || !isAdminView ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''}`}
                                 placeholder="Enter Employee ID"
                             />
                         </div>
@@ -130,7 +166,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                                 name="full_name"
                                 value={formData.full_name}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                disabled={isProfileLocked}
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProfileLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                 placeholder="Your full name"
                             />
                         </div>
@@ -145,7 +182,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                                     required
                                     value={formData.contact_number}
                                     onChange={handleChange}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    disabled={isProfileLocked}
+                                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProfileLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                     placeholder="+1234567890"
                                 />
                             </div>
@@ -156,7 +194,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                                     name="emergency_contact_2"
                                     value={formData.emergency_contact_2}
                                     onChange={handleChange}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    disabled={isProfileLocked}
+                                    className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProfileLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                                     placeholder="+1234567890"
                                 />
                             </div>
@@ -168,7 +207,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                                 name="blood_type"
                                 value={formData.blood_type}
                                 onChange={handleChange}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                disabled={isProfileLocked}
+                                className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${isProfileLocked ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                             >
                                 <option value="">Select Blood Type</option>
                                 <option value="A+">A+</option>
@@ -216,24 +256,26 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAd
                         onClick={onClose}
                         className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors font-medium"
                     >
-                        Cancel
+                        {isProfileLocked ? 'Close' : 'Cancel'}
                     </button>
-                    <button
-                        type="submit"
-                        form="profile-form"
-                        disabled={loading}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center shadow-sm"
-                    >
-                        {loading ? (
-                            <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Saving...
-                            </>
-                        ) : 'Save Changes'}
-                    </button>
+                    {!isProfileLocked && (
+                        <button
+                            type="submit"
+                            form="profile-form"
+                            disabled={loading}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium flex items-center shadow-sm"
+                        >
+                            {loading ? (
+                                <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Saving...
+                                </>
+                            ) : 'Save Changes'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
