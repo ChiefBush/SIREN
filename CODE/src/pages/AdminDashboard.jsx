@@ -40,7 +40,7 @@ function AdminDashboard({ onLogout }) {
         setUser(authUser)
         const { data: profile } = await supabase
           .from('users')
-          .select('full_name, email, contact_number, blood_type, photo_url')
+          .select('*')
           .eq('id', authUser.id)
           .single()
         if (profile) {

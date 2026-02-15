@@ -28,7 +28,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         // Fetch specific user by userId (for supervisor view)
         const { data: profile } = await supabase
           .from('users')
-          .select('id, full_name, email, contact_number, blood_type, photo_url')
+          .select('*')
           .eq('id', userId)
           .single()
         if (profile) {
@@ -43,7 +43,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
           // Fetch user profile
           const { data: profile } = await supabase
             .from('users')
-            .select('full_name, email, contact_number, blood_type, photo_url')
+            .select('*')
             .eq('id', authUser.id)
             .single()
           if (profile) {
