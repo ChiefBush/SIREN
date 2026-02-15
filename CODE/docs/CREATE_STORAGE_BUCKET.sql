@@ -19,37 +19,37 @@ CREATE POLICY "Public Access"
 ON storage.objects FOR SELECT
 USING ( bucket_id = 'avatars' );
 
--- Allow authenticated users to upload their own avatar
--- (Assuming the file name is the user ID, e.g., 'userid' or 'userid.jpg')
--- Checking that the name matches the auth.uid() is a good security practice
+-- Allow authenticated users to upload their own avatar, or admins to upload any
+-- (The implementation uses the user ID as the filename at the root level)
 DROP POLICY IF EXISTS "Authenticated users can upload avatars" ON storage.objects;
 CREATE POLICY "Authenticated users can upload avatars"
 ON storage.objects FOR INSERT
 TO authenticated
 WITH CHECK (
   bucket_id = 'avatars' AND
-  (storage.foldername(name))[1] = auth.uid()::text
+  (storage.foldername(name))[1] IS NULL AND
+  (name = auth.uid()::text OR public.user_has_role(auth.uid(), ARRAY['admin']))
 );
 
--- Allow authenticated users to update their own avatar
+-- Allow authenticated users to update their own avatar, or admins to update any
 DROP POLICY IF EXISTS "Authenticated users can update avatars" ON storage.objects;
 CREATE POLICY "Authenticated users can update avatars"
 ON storage.objects FOR UPDATE
 TO authenticated
 USING (
   bucket_id = 'avatars' AND
-  (storage.foldername(name))[1] = auth.uid()::text
+  (name = auth.uid()::text OR public.user_has_role(auth.uid(), ARRAY['admin']))
 );
 
--- Allow authenticated users to delete their own avatar
+-- Allow authenticated users to delete their own avatar, or admins to delete any
 DROP POLICY IF EXISTS "Authenticated users can delete avatars" ON storage.objects;
 CREATE POLICY "Authenticated users can delete avatars"
 ON storage.objects FOR DELETE
 TO authenticated
 USING (
   bucket_id = 'avatars' AND
-  (storage.foldername(name))[1] = auth.uid()::text
+  (name = auth.uid()::text OR public.user_has_role(auth.uid(), ARRAY['admin']))
 );
 
--- Note: The implementation uses just `${user.id}` as the filename (no extension)
--- which is why we check against auth.uid()::text directly.
+-- Note: The implementation in UserProfileModal.jsx uses just `${user.id}` 
+-- as the filename (no extension) at the root level of the bucket.

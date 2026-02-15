@@ -35,10 +35,20 @@ You can verify by:
 2. You should see the `users` table listed
 3. Check that RLS is enabled (there should be a lock icon)
 
-### Step 4: Test Signup
+### Step 4: Create Storage Bucket
+1. Open the file `docs/CREATE_STORAGE_BUCKET.sql` in your project
+2. Copy the **entire contents** of the file
+3. Paste it into the Supabase SQL Editor
+4. Click **Run**
 
+This will:
+- ✅ Create the `avatars` bucket
+- ✅ Set it to public visibility
+- ✅ Configure Row Level Security (RLS) policies for secure uploads
+
+### Step 5: Test Signup & Profile Photo
 1. Go back to your application
-2. Try signing up with a new account
+2. Try signing up or editing your profile to upload a photo
 3. It should work now!
 
 ## What the Schema Does

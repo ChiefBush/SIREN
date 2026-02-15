@@ -83,9 +83,42 @@ function AdminDashboard({ onLogout }) {
   }
 
   const handleAction = (action, targetUser) => {
-    console.log(`${action} user:`, targetUser)
+    if (action === 'Edit') {
+      setEditingUser(targetUser)
+      setIsProfileOpen(true)
+    } else if (action === 'Delete') {
+      handleDeleteUser(targetUser)
+    }
     setActiveMenuId(null)
   }
+
+  const handleDeleteUser = async (targetUser) => {
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete user ${targetUser.full_name || targetUser.email}? This action will permanently remove their profile data.`
+    )
+
+    if (confirmDelete) {
+      try {
+        setLoading(true)
+        const { error } = await supabase
+          .from('users')
+          .delete()
+          .eq('id', targetUser.id)
+
+        if (error) throw error
+
+        alert('User deleted successfully')
+        fetchAllUsers() // Refresh the list
+      } catch (error) {
+        console.error('Error deleting user:', error)
+        alert('Failed to delete user: ' + error.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  const [editingUser, setEditingUser] = useState(null)
 
   const filteredUsers = users.filter(user => {
     if (roleFilter === 'All') return true
@@ -93,6 +126,9 @@ function AdminDashboard({ onLogout }) {
   })
 
   const handleRowClick = (userItem) => {
+    // Prevent navigation if menu or modal is open
+    if (activeMenuId) return
+
     if (userItem.role?.toLowerCase() === 'miner') {
       navigate(`/admin/miner/${userItem.id}`)
     } else if (userItem.role?.toLowerCase() === 'supervisor') {
@@ -169,14 +205,10 @@ function AdminDashboard({ onLogout }) {
                 onClick={() => setIsProfileOpen(true)}
                 className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
               >
-                <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
-                  {userProfile?.photo_url ? (
-                    <img src={userProfile.photo_url} alt="Profile" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
-                      {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
-                    </div>
-                  )}
+                <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200">
+                  <div className="text-xs font-bold text-blue-600 uppercase">
+                    {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                  </div>
                 </div>
                 <span className="font-medium">{userProfile?.full_name || user?.email || 'Admin'}</span>
               </button>
@@ -303,9 +335,16 @@ function AdminDashboard({ onLogout }) {
 
       <UserProfileModal
         isOpen={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        user={{ ...user, ...userProfile }}
-        onUpdate={() => fetchCurrentUser()}
+        onClose={() => {
+          setIsProfileOpen(false)
+          setEditingUser(null)
+        }}
+        user={editingUser || { ...user, ...userProfile }}
+        onUpdate={() => {
+          fetchCurrentUser()
+          fetchAllUsers()
+        }}
+        isAdminView={!!editingUser}
       />
     </div>
   )

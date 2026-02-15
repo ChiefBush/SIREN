@@ -249,14 +249,10 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                     onClick={() => setIsProfileOpen(true)}
                     className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
                   >
-                    <div className="w-8 h-8 rounded-full bg-gray-200 overflow-hidden border border-gray-300">
-                      {userProfile?.photo_url ? (
-                        <img src={userProfile.photo_url} alt="Profile" className="w-full h-full object-cover" />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
-                          {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
-                        </div>
-                      )}
+                    <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center border border-blue-200">
+                      <div className="w-full h-full flex items-center justify-center text-xs font-bold text-blue-600 uppercase">
+                        {userProfile?.full_name?.charAt(0) || user?.email?.charAt(0) || '?'}
+                      </div>
                     </div>
                     <span className="font-medium">{userProfile?.full_name || user?.email || 'User'}</span>
                   </button>

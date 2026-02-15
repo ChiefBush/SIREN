@@ -1,34 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
-export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
+export default function UserProfileModal({ isOpen, onClose, user, onUpdate, isAdminView = false }) {
     const [formData, setFormData] = useState({
         full_name: '',
         contact_number: '',
         emergency_contact_2: '',
         blood_type: '',
-        photo_url: '',
         employee_id: '',
-        email: ''
+        email: '',
+        role: ''
     })
     const [loading, setLoading] = useState(false)
-    const [uploading, setUploading] = useState(false)
     const [error, setError] = useState(null)
-    const fileInputRef = useRef(null)
 
     useEffect(() => {
-        if (user) {
+        if (user && isOpen) {
             setFormData({
                 full_name: user.full_name || '',
                 contact_number: user.contact_number || '',
                 emergency_contact_2: user.emergency_contact_2 || '',
                 blood_type: user.blood_type || '',
-                photo_url: user.photo_url || '',
                 employee_id: user.employee_id || '',
-                email: user.email || ''
+                email: user.email || '',
+                role: user.role || 'miner'
             })
         }
-    }, [user, isOpen])
+    }, [user?.id, isOpen])
 
     if (!isOpen) return null
 
@@ -37,44 +35,6 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
         setFormData(prev => ({ ...prev, [name]: value }))
     }
 
-    const handleImageUpload = async (event) => {
-        try {
-            setUploading(true)
-            setError(null)
-
-            if (!event.target.files || event.target.files.length === 0) {
-                return // No file selected
-            }
-
-            const file = event.target.files[0]
-            if (file.size > 2 * 1024 * 1024) {
-                throw new Error('Image size must be less than 2MB')
-            }
-
-            // We use the user ID as the filename to ensure we overwrite functionality
-            const filePath = `${user.id}`
-
-            let { error: uploadError } = await supabase.storage
-                .from('avatars')
-                .upload(filePath, file, { upsert: true })
-
-            if (uploadError) {
-                throw uploadError
-            }
-
-            // Get public URL
-            const { data } = supabase.storage.from('avatars').getPublicUrl(filePath)
-            // Add timestamp query param to force cache refresh
-            const publicUrl = `${data.publicUrl}?t=${new Date().getTime()}`
-
-            setFormData(prev => ({ ...prev, photo_url: publicUrl }))
-        } catch (error) {
-            console.error('Error uploading image:', error)
-            setError(error.message || 'Failed to upload image. Please try again.')
-        } finally {
-            setUploading(false)
-        }
-    }
 
     const handleSubmit = async (e) => {
         e.preventDefault()
@@ -87,8 +47,8 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
                 contact_number: formData.contact_number,
                 emergency_contact_2: formData.emergency_contact_2,
                 blood_type: formData.blood_type,
-                photo_url: formData.photo_url,
-                employee_id: formData.employee_id
+                employee_id: formData.employee_id,
+                role: formData.role
             }
 
             const { error } = await supabase
@@ -102,7 +62,7 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
             onClose()
         } catch (err) {
             console.error('Error updating profile:', err)
-            setError('Failed to update profile. Please try again.')
+            setError(err.message || 'Failed to update profile. Please try again.')
         } finally {
             setLoading(false)
         }
@@ -132,41 +92,13 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
                         )}
 
                         <div className="flex justify-center mb-6">
-                            <div className="relative group">
-                                <div className="w-24 h-24 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden border-2 border-gray-300">
-                                    {formData.photo_url ? (
-                                        <img src={formData.photo_url} alt="Profile" className="w-full h-full object-cover" />
-                                    ) : (
-                                        <span className="text-3xl text-gray-500 font-bold">
-                                            {formData.full_name?.charAt(0) || user.email?.charAt(0) || '?'}
-                                        </span>
-                                    )}
-                                </div>
-
-                                {/* Camera Icon Trigger */}
-                                <div
-                                    className="absolute bottom-0 right-0 bg-blue-600 text-white p-1.5 rounded-full cursor-pointer hover:bg-blue-700 border-2 border-white shadow-sm transition-transform hover:scale-110"
-                                    onClick={() => fileInputRef.current.click()}
-                                    title="Change Profile Photo"
-                                >
-                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    </svg>
-                                </div>
-
-                                {/* Hidden File Input */}
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    accept="image/*"
-                                    onChange={handleImageUpload}
-                                    className="hidden"
-                                />
+                            <div className="w-24 h-24 rounded-full bg-blue-100 flex items-center justify-center border-2 border-blue-200">
+                                <span className="text-3xl text-blue-600 font-bold uppercase">
+                                    {formData.full_name?.charAt(0) || user.email?.charAt(0) || '?'}
+                                </span>
                             </div>
                         </div>
 
-                        {uploading && <p className="text-center text-sm text-blue-600">Uploading image...</p>}
 
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Employee ID</label>
@@ -203,22 +135,6 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Profile Photo</label>
-                            <div className="flex items-center space-x-4">
-                                <button
-                                    type="button"
-                                    onClick={() => fileInputRef.current.click()}
-                                    className="px-4 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
-                                >
-                                    Choose File
-                                </button>
-                                <span className="text-sm text-gray-500">
-                                    {uploading ? 'Uploading...' : 'No file selected'}
-                                </span>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-1">Max 2MB. JPG, PNG, GIF</p>
-                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
@@ -265,6 +181,32 @@ export default function UserProfileModal({ isOpen, onClose, user, onUpdate }) {
                                 <option value="O-">O-</option>
                             </select>
                         </div>
+
+                        {isAdminView && (
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                                <label className="block text-sm font-semibold text-blue-800 mb-2 flex items-center">
+                                    <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fillRule="evenodd" d="M2.166 4.9L10 1.55l7.834 3.35a1 1 0 01.666.92v6.513a1 1 0 01-.273.662L10 19.35l-8.227-6.355A1 1 0 011.5 12.333V5.82a1 1 0 01.666-.92zM10 3.333L3.5 6.111v6.222L10 17.652l6.5-5.319V6.111L10 3.333z" clipRule="evenodd" />
+                                    </svg>
+                                    Administrative: Change Role
+                                </label>
+                                <select
+                                    name="role"
+                                    value={formData.role}
+                                    onChange={(e) => {
+                                        const newRole = e.target.value;
+                                        if (window.confirm(`CRITICAL: Are you sure you want to change this user's role to ${newRole.toUpperCase()}? This will immediately change their dashboard and permissions.`)) {
+                                            handleChange(e);
+                                        }
+                                    }}
+                                    className="w-full px-3 py-2 border border-blue-300 bg-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-blue-900"
+                                >
+                                    <option value="miner">Miner (Standard restricted access)</option>
+                                    <option value="supervisor">Supervisor (Can manage miners & view logs)</option>
+                                    <option value="admin">Admin (Full system control)</option>
+                                </select>
+                            </div>
+                        )}
                     </form>
                 </div>
 
