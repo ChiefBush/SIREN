@@ -219,6 +219,12 @@ function AdminDashboard({ onLogout }) {
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           <div className="space-y-6">
+            {/* Page Title */}
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">User Logs</h2>
+              <p className="text-gray-600 mt-1">Manage and monitor system users and their roles</p>
+            </div>
+
             {/* Filter Controls */}
             <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
               {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
