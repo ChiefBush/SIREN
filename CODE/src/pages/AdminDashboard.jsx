@@ -3,11 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
-<<<<<<< HEAD
 import ChatFloatingButton from '../components/ChatFloatingButton'
-=======
 import Footer from '../components/Footer'
->>>>>>> 1c5867710e2c894047b25688e54079b305373155
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
