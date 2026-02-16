@@ -7,6 +7,7 @@ import Attendance from './Attendance'
 import MinerLeaveApplication from './MinerLeaveApplication'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
+import Footer from '../components/Footer'
 import { useSensorData } from '../hooks/useSensorData'
 
 function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = false }) {
@@ -171,7 +172,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
       {/* Left Sidebar */}
       <div className="w-64 bg-gray-800 text-white flex flex-col">
         {/* Logo Section */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="h-24 flex items-center px-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
             <Logo className="h-16" />
             <div>
@@ -201,7 +202,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         {/* Logout Button - only show if not read-only */}
         {/* Logout Button - only show if not read-only OR if admin view */}
         {(!isReadOnly || isAdminView) && (
-          <div className="p-4 border-t border-gray-700">
+          <div className="h-20 flex items-center px-4 border-t border-gray-700">
             <button
               onClick={handleLogout}
               className={`w-full px-4 py-2 ${isAdminView ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg transition-colors font-medium`}
@@ -215,8 +216,8 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
+        <header className="bg-white border-b border-gray-200 px-6 h-24 flex items-center">
+          <div className="flex-1 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               {(isReadOnly || isAdminView) && (
                 <button
@@ -485,6 +486,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
             </div>
           )}
         </main>
+        <Footer />
       </div>
 
       {/* Profile Modal */}
