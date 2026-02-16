@@ -7,6 +7,8 @@ import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
+import ChatFloatingButton from '../components/ChatFloatingButton'
+import SupervisorIncidentReports from './SupervisorIncidentReports'
 
 function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
@@ -264,6 +266,41 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
     }
   }
 
+  // Fetch active incidents for dashboard status
+  const [activeIncidents, setActiveIncidents] = useState([])
+  useEffect(() => {
+    fetchActiveIncidents()
+    // Subscribe to incident changes
+    const incidentChannel = supabase
+      .channel('dashboard-incidents')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'incidents' },
+        () => fetchActiveIncidents()
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(incidentChannel)
+    }
+  }, [])
+
+  const fetchActiveIncidents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('incidents')
+        .select('*')
+        .neq('status', 'resolved')
+        .neq('status', 'closed')
+
+      if (!error && data) {
+        setActiveIncidents(data)
+      }
+    } catch (err) {
+      console.error('Error fetching active incidents:', err)
+    }
+  }
+
   const handleLogout = async () => {
     if (isAdminView) {
       navigate('/admin')
@@ -282,9 +319,18 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const tempStatus = getSensorStatus(sensorData.temperature, 35, 45)
   const humidityStatus = getSensorStatus(sensorData.humidity, 80, 95)
 
-  const safeCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'safe').length
-  const warningCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'warning').length
-  const criticalCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'critical').length
+  const sensorSafeCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'safe').length
+  const sensorWarningCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'warning').length
+  const sensorCriticalCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'critical').length
+
+  // Incident counts
+  const criticalIncidentsCount = activeIncidents.filter(i => i.severity === 'critical' || i.severity === 'high').length
+  const warningIncidentsCount = activeIncidents.filter(i => i.severity === 'medium' || i.severity === 'low').length
+
+  // Total counts for dashboard
+  const warningCount = sensorWarningCount + warningIncidentsCount
+  const criticalCount = sensorCriticalCount + criticalIncidentsCount
+  const safeCount = sensorSafeCount // Safe count usually refers to sensors in 'safe' state
 
   const allSystemsNormal = warningCount === 0 && criticalCount === 0
 
@@ -304,6 +350,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'incidents', label: 'Incident Reports', icon: '⚠️' },
     { id: 'leave', label: 'Leave Management', icon: '📝' },
     { id: 'miner-logs', label: 'Miner Logs', icon: '📋' }
   ]
@@ -454,7 +501,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                         {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
                       <p className="text-sm opacity-90 mt-1">
-                        Last updated: {sensorHistory?.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                        Last updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
                       </p>
                     </div>
                   </div>
@@ -498,17 +545,33 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
               <DashboardCharts userId={null} userEmail={user?.email} />
 
               {/* Bottom Information Cards */}
-              <div className="grid grid-cols-2 gap-4">
-                {/* Active Alerts */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Active Sensor Alerts */}
                 <div className="bg-white rounded-lg p-6 shadow-md">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Active Alerts</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">Sensor Alerts</h3>
                     <svg className="w-6 h-6 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
                     </svg>
                   </div>
-                  <div className="text-4xl font-bold text-gray-900 mb-2">0</div>
-                  <p className="text-sm text-gray-600">Requires attention</p>
+                  <div className="text-4xl font-bold text-gray-900 mb-2">
+                    {sensorWarningCount + sensorCriticalCount}
+                  </div>
+                  <p className="text-sm text-gray-600">Active sensor warnings</p>
+                </div>
+
+                {/* Active Incidents */}
+                <div className="bg-white rounded-lg p-6 shadow-md cursor-pointer hover:shadow-lg transition-shadow" onClick={() => setActivePage('incidents')}>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Active Incidents</h3>
+                    <svg className="w-6 h-6 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  </div>
+                  <div className="text-4xl font-bold text-gray-900 mb-2">
+                    {activeIncidents.length}
+                  </div>
+                  <p className="text-sm text-gray-600">Reported issues</p>
                 </div>
 
                 {/* Shift Status */}
@@ -533,7 +596,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
             </div>
           )}
 
-
+          {/* Incident Reports Page */}
+          {activePage === 'incidents' && (
+            <SupervisorIncidentReports userId={userId} userEmail={user?.email} />
+          )}
 
           {/* Leave Management Page */}
           {activePage === 'leave' && (
@@ -566,9 +632,11 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           }
         }}
       />
+
+      {/* Chat Functionality */}
+      {user && <ChatFloatingButton currentUser={user} />}
     </div>
   )
 }
 
 export default SupervisorDashboard
-

@@ -6,6 +6,7 @@ import DashboardCharts from '../components/DashboardCharts'
 import Attendance from './Attendance'
 import MinerLeaveApplication from './MinerLeaveApplication'
 import Logo from '../components/Logo'
+import WatchMessageDisplay from '../components/WatchMessageDisplay'
 import UserProfileModal from '../components/UserProfileModal'
 import { useSensorData } from '../hooks/useSensorData'
 
@@ -168,8 +169,21 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
 
   return (
     <div className="flex h-screen bg-gray-50">
+      {/* Message Display for Miner */}
+      {!isReadOnly && !isAdminView && user?.id && <WatchMessageDisplay userId={user.id} />}
+      {/* Also show for read-only view if we want to simulate what miner sees, 
+           but typically we only want the actual miner to see it or risk duplicate subscriptions.
+           However, for 'View as Miner' feature, maybe we do want to see it?
+           Requirement says "Miner should receive and view directly".
+           Let's restrict to actual miner login or if userId is passed but we are in Supervisor view?
+           Actually, the requirement says "Miner should receive".
+           Let's enable it for the active user view.
+        */}
+
       {/* Left Sidebar */}
       <div className="w-64 bg-gray-800 text-white flex flex-col">
+        {/* ... */}
+
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">

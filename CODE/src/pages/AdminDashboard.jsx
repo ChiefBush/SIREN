@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
+import ChatFloatingButton from '../components/ChatFloatingButton'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -346,6 +347,9 @@ function AdminDashboard({ onLogout }) {
         }}
         isAdminView={!!editingUser}
       />
+
+      {/* Chat Functionality */}
+      {user && <ChatFloatingButton currentUser={user} />}
     </div>
   )
 }
