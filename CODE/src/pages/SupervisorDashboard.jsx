@@ -7,8 +7,12 @@ import SupervisorLeaveManagement from './SupervisorLeaveManagement'
 import { useSensorData } from '../hooks/useSensorData'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
+<<<<<<< HEAD
 import ChatFloatingButton from '../components/ChatFloatingButton'
 import SupervisorIncidentReports from './SupervisorIncidentReports'
+=======
+import Footer from '../components/Footer'
+>>>>>>> 1c5867710e2c894047b25688e54079b305373155
 
 function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
@@ -360,11 +364,12 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       {/* Left Sidebar */}
       <div className="w-64 bg-gray-800 text-white flex flex-col">
         {/* Logo Section */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="h-24 flex items-center px-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <Logo className="h-10" />
+            <Logo className="h-16" />
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-tighter font-bold">Safety Monitoring</p>
+              <h1 className="text-xl font-bold">SIREN</h1>
+              <p className="text-xs text-gray-400">Supervisor Portal</p>
             </div>
           </div>
         </div>
@@ -387,7 +392,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         </nav>
 
         {/* Logout Button */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="h-20 flex items-center px-4 border-t border-gray-700">
           <button
             onClick={handleLogout}
             className={`w-full px-4 py-2 ${isAdminView ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg transition-colors font-medium`}
@@ -400,11 +405,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
+        <header className="bg-white border-b border-gray-200 px-6 h-24 flex items-center">
+          <div className="flex-1 flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <Logo className="h-10" />
-              <h1 className="text-2xl font-bold text-gray-900 ml-2">SIREN</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Supervisor Dashboard</h1>
             </div>
             <div className="text-gray-600 flex items-center space-x-4">
               {isAdminView && <span className="mr-2 px-2 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Admin View</span>}
@@ -611,6 +615,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
             <MinerLogs />
           )}
         </main>
+        <Footer />
       </div>
 
       {/* Profile Modal */}

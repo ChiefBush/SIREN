@@ -8,6 +8,7 @@ import SupervisorDashboard from './pages/SupervisorDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import MinerView from './pages/MinerView'
 import { AdminMinerView, AdminSupervisorView } from './pages/AdminViews'
+import { AboutUs, LegalDisclosure, PrivacyPolicy, TermsConditions } from './pages/FooterPages'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -216,6 +217,12 @@ function App() {
             )
           }
         />
+
+        {/* Footer Pages */}
+        <Route path="/about" element={<AboutUs />} />
+        <Route path="/legal" element={<LegalDisclosure />} />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<TermsConditions />} />
 
         {/* Catch all - redirect to landing */}
         <Route path="*" element={<Navigate to="/" />} />

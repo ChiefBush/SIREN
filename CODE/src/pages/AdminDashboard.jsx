@@ -3,7 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
+<<<<<<< HEAD
 import ChatFloatingButton from '../components/ChatFloatingButton'
+=======
+import Footer from '../components/Footer'
+>>>>>>> 1c5867710e2c894047b25688e54079b305373155
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -155,9 +159,9 @@ function AdminDashboard({ onLogout }) {
       {/* Left Sidebar */}
       <div className="w-64 bg-gray-800 text-white flex flex-col">
         {/* Logo Section */}
-        <div className="p-6 border-b border-gray-700">
+        <div className="h-24 flex items-center px-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <Logo className="h-10" />
+            <Logo className="h-16" />
             <div>
               <h1 className="text-xl font-bold">SIREN</h1>
               <p className="text-xs text-gray-400">Admin Portal</p>
@@ -183,7 +187,7 @@ function AdminDashboard({ onLogout }) {
         </nav>
 
         {/* Logout Button */}
-        <div className="p-4 border-t border-gray-700">
+        <div className="h-20 flex items-center px-4 border-t border-gray-700">
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
@@ -196,8 +200,8 @@ function AdminDashboard({ onLogout }) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
+        <header className="bg-white border-b border-gray-200 px-6 h-24 flex items-center">
+          <div className="flex-1 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
             </div>
@@ -220,6 +224,12 @@ function AdminDashboard({ onLogout }) {
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           <div className="space-y-6">
+            {/* Page Title */}
+            <div>
+              <h2 className="text-3xl font-bold text-gray-900">User Logs</h2>
+              <p className="text-gray-600 mt-1">Manage and monitor system users and their roles</p>
+            </div>
+
             {/* Filter Controls */}
             <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
               {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
@@ -332,6 +342,7 @@ function AdminDashboard({ onLogout }) {
             </div>
           </div>
         </main>
+        <Footer />
       </div>
 
       <UserProfileModal
