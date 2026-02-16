@@ -315,9 +315,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <Logo className="h-10" />
+            <Logo className="h-16" />
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-tighter font-bold">Safety Monitoring</p>
+              <h1 className="text-xl font-bold">SIREN</h1>
+              <p className="text-xs text-gray-400">Supervisor Portal</p>
             </div>
           </div>
         </div>
@@ -356,8 +357,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         <header className="bg-white border-b border-gray-200 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <Logo className="h-10" />
-              <h1 className="text-2xl font-bold text-gray-900 ml-2">SIREN</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Supervisor Dashboard</h1>
             </div>
             <div className="text-gray-600 flex items-center space-x-4">
               {isAdminView && <span className="mr-2 px-2 py-1 bg-red-100 text-red-800 text-xs font-semibold rounded-full">Admin View</span>}

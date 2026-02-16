@@ -173,9 +173,10 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <Logo className="h-10" />
+            <Logo className="h-16" />
             <div>
-              <p className="text-xs text-gray-400 uppercase tracking-tighter font-bold">Safety Monitoring</p>
+              <h1 className="text-xl font-bold">SIREN</h1>
+              <p className="text-xs text-gray-400">Miner Portal</p>
             </div>
           </div>
         </div>
@@ -228,7 +229,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                   <span>Back</span>
                 </button>
               )}
-              <Logo className="h-10" />
+              <h1 className="text-2xl font-bold text-gray-900">Miner Dashboard</h1>
               {isReadOnly && !isAdminView && (
                 <span className="ml-3 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
                   Read-Only View

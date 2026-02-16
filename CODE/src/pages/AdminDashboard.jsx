@@ -156,7 +156,7 @@ function AdminDashboard({ onLogout }) {
         {/* Logo Section */}
         <div className="p-6 border-b border-gray-700">
           <div className="flex items-center space-x-3">
-            <Logo className="h-10" />
+            <Logo className="h-16" />
             <div>
               <h1 className="text-xl font-bold">SIREN</h1>
               <p className="text-xs text-gray-400">Admin Portal</p>
