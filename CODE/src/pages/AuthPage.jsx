@@ -20,7 +20,7 @@ function AuthPage() {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [fullName, setFullName] = useState('')
-  const [role, setRole] = useState('')
+  const [role] = useState('miner')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
@@ -88,9 +88,6 @@ function AuthPage() {
         newErrors.confirmPassword = 'Passwords do not match'
       }
 
-      if (!role) {
-        newErrors.role = 'Please select a role'
-      }
     } else {
       // Login validations
       if (!email.trim()) {
@@ -306,7 +303,6 @@ function AuthPage() {
             setPassword('')
             setConfirmPassword('')
             setFullName('')
-            setRole('')
             setErrors({})
           }, 2000)
         }
@@ -344,8 +340,7 @@ function AuthPage() {
     password &&
     passwordValidation?.valid &&
     confirmPassword &&
-    password === confirmPassword &&
-    role
+    password === confirmPassword
     : email.trim() && validateEmail(email) && password
 
   return (
@@ -442,25 +437,6 @@ REACT_APP_SUPABASE_ANON_KEY=your_key`}
                 )}
               </div>
 
-              <div>
-                <label htmlFor="role" className="block text-sm font-medium text-gray-700 mb-1">
-                  Role <span className="text-red-500">*</span>
-                </label>
-                <select
-                  id="role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  required
-                  className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent ${errors.role ? 'border-red-500' : 'border-gray-300'
-                    }`}
-                >
-                  <option value="">Select your role</option>
-                  <option value="miner">Miner</option>
-                  <option value="supervisor">Supervisor</option>
-                  <option value="admin">Admin</option>
-                </select>
-                {errors.role && <p className="mt-1 text-sm text-red-600">{errors.role}</p>}
-              </div>
             </>
           )}
 
