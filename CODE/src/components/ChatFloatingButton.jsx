@@ -126,7 +126,7 @@ export default function ChatFloatingButton({ currentUser }) {
             {/* Floating Button */}
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="fixed bottom-6 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center z-50 transition-transform transform hover:scale-105"
+                className="fixed bottom-24 right-6 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center z-50 transition-transform transform hover:scale-105"
                 title="Chat with Miner"
             >
                 {isOpen ? (
@@ -142,7 +142,7 @@ export default function ChatFloatingButton({ currentUser }) {
 
             {/* Chat Panel */}
             {isOpen && (
-                <div className="fixed bottom-24 right-6 w-80 md:w-96 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 flex flex-col h-[500px] overflow-hidden">
+                <div className="fixed bottom-44 right-6 w-80 md:w-96 bg-white rounded-lg shadow-2xl border border-gray-200 z-50 flex flex-col h-[500px] overflow-hidden">
                     <div className="p-4 border-b border-gray-200 bg-blue-600 text-white flex justify-between items-center">
                         <h3 className="font-bold">Miner Communication</h3>
                     </div>

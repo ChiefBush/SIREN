@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
@@ -154,16 +154,16 @@ function AdminDashboard({ onLogout }) {
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Left Sidebar */}
-      <div className="w-64 bg-gray-800 text-white flex flex-col">
+      <div className="w-64 bg-blue-950 text-white flex flex-col shadow-2xl">
         {/* Logo Section */}
-        <div className="h-24 flex items-center px-6 border-b border-gray-700">
-          <div className="flex items-center space-x-3">
+        <div className="h-24 flex items-center px-6 border-b border-blue-900/50">
+          <Link to="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
             <Logo className="h-16" />
             <div>
               <h1 className="text-xl font-bold">SIREN</h1>
-              <p className="text-xs text-gray-400">Admin Portal</p>
+              <p className="text-xs text-blue-300">Admin Portal</p>
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Navigation Menu */}
@@ -174,7 +174,7 @@ function AdminDashboard({ onLogout }) {
               onClick={() => setActivePage(item.id)}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-colors ${activePage === item.id
                 ? 'bg-blue-600 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
+                : 'text-blue-100 hover:bg-blue-900/50'
                 }`}
             >
               <span className="text-xl">{item.icon}</span>
@@ -184,7 +184,7 @@ function AdminDashboard({ onLogout }) {
         </nav>
 
         {/* Logout Button */}
-        <div className="h-20 flex items-center px-4 border-t border-gray-700">
+        <div className="h-20 flex items-center px-4 border-t border-blue-900/50">
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"

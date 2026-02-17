@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import SensorMetrics from './SensorMetrics'
 import DashboardCharts from '../components/DashboardCharts'
@@ -182,18 +182,16 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         */}
 
       {/* Left Sidebar */}
-      <div className="w-64 bg-gray-800 text-white flex flex-col">
-        {/* ... */}
-
+      <div className="w-64 bg-blue-950 text-white flex flex-col shadow-2xl">
         {/* Logo Section */}
-        <div className="h-24 flex items-center px-6 border-b border-gray-700">
-          <div className="flex items-center space-x-3">
+        <div className="h-24 flex items-center px-6 border-b border-blue-900/50">
+          <Link to="/" className="flex items-center space-x-3 hover:opacity-80 transition-opacity">
             <Logo className="h-16" />
             <div>
               <h1 className="text-xl font-bold">SIREN</h1>
-              <p className="text-xs text-gray-400">Miner Portal</p>
+              <p className="text-xs text-blue-300">Miner Portal</p>
             </div>
-          </div>
+          </Link>
         </div>
 
         {/* Navigation Menu */}
@@ -204,7 +202,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
               onClick={() => setActivePage(item.id)}
               className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition-colors ${activePage === item.id
                 ? 'bg-blue-600 text-white'
-                : 'text-gray-300 hover:bg-gray-700'
+                : 'text-blue-100 hover:bg-blue-900/50'
                 }`}
             >
               <span className="text-xl">{item.icon}</span>
@@ -216,7 +214,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
         {/* Logout Button - only show if not read-only */}
         {/* Logout Button - only show if not read-only OR if admin view */}
         {(!isReadOnly || isAdminView) && (
-          <div className="h-20 flex items-center px-4 border-t border-gray-700">
+          <div className="h-20 flex items-center px-4 border-t border-blue-900/50">
             <button
               onClick={handleLogout}
               className={`w-full px-4 py-2 ${isAdminView ? 'bg-gray-600 hover:bg-gray-500' : 'bg-red-600 hover:bg-red-700'} text-white rounded-lg transition-colors font-medium`}
