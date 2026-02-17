@@ -13,6 +13,8 @@ import LegalDisclosure from './pages/LegalDisclosure'
 import PrivacyPolicy from './pages/PrivacyPolicy'
 import TermsConditions from './pages/TermsConditions'
 
+import ScrollToTop from './components/ScrollToTop'
+
 function App() {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -143,6 +145,7 @@ function App() {
 
   return (
     <Router>
+      <ScrollToTop />
       <Routes>
         {/* Landing page - always accessible */}
         <Route path="/" element={<LandingPage />} />
