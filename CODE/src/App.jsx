@@ -8,7 +8,10 @@ import SupervisorDashboard from './pages/SupervisorDashboard'
 import AdminDashboard from './pages/AdminDashboard'
 import MinerView from './pages/MinerView'
 import { AdminMinerView, AdminSupervisorView } from './pages/AdminViews'
-import { AboutUs, LegalDisclosure, PrivacyPolicy, TermsConditions } from './pages/FooterPages'
+import AboutUs from './pages/AboutUs'
+import LegalDisclosure from './pages/LegalDisclosure'
+import PrivacyPolicy from './pages/PrivacyPolicy'
+import TermsConditions from './pages/TermsConditions'
 
 function App() {
   const [user, setUser] = useState(null)
