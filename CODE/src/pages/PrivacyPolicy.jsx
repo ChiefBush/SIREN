@@ -2,7 +2,7 @@ import React from 'react';
 import FooterPageLayout from '../components/FooterPageLayout';
 
 const PrivacyPolicy = () => (
-    <FooterPageLayout title="Privacy Policy">
+    <FooterPageLayout title="Privacy Policy" showDownload={true}>
         <section>
             <p>This Privacy Policy explains how data is collected, used, stored, and protected when using this application and its associated hardware system.</p>
             <p>By accessing or using the system, you acknowledge and agree to the practices described in this policy.</p>

@@ -2,7 +2,7 @@ import React from 'react';
 import FooterPageLayout from '../components/FooterPageLayout';
 
 const LegalDisclosure = () => (
-    <FooterPageLayout title="Legal Disclosure">
+    <FooterPageLayout title="Legal Disclosure" showDownload={true}>
         <section>
             <h3 className="text-xl font-bold text-gray-900 mb-3 border-l-4 border-blue-600 pl-4 uppercase tracking-wider text-sm">General Information</h3>
             <p>This application and associated hardware system are developed as part of an academic and research project focused on improving safety awareness in hazardous work environments.</p>

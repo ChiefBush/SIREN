@@ -14,6 +14,8 @@ function AdminDashboard({ onLogout }) {
 
   // Admin specific state
   const [users, setUsers] = useState([])
+  const [deletedUsers, setDeletedUsers] = useState([])
+  const [activityLogs, setActivityLogs] = useState([])
   const [roleFilter, setRoleFilter] = useState('All')
   const [activeMenuId, setActiveMenuId] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -23,7 +25,9 @@ function AdminDashboard({ onLogout }) {
 
   useEffect(() => {
     fetchCurrentUser()
+    cleanupExpiredUsers()
     fetchAllUsers()
+    fetchActivityLogs()
 
     // Click outside listener to close menus
     const handleClickOutside = (event) => {
@@ -34,6 +38,43 @@ function AdminDashboard({ onLogout }) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const fetchActivityLogs = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('admin_activity_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (error) throw error
+      setActivityLogs(data || [])
+    } catch (error) {
+      console.error('Error fetching activity logs:', error)
+      // Mock data if table doesn't exist
+      setActivityLogs([])
+    }
+  }
+
+  const logAdminActivity = async (targetUser, action, details) => {
+    try {
+      const { error } = await supabase
+        .from('admin_activity_logs')
+        .insert({
+          admin_id: user?.id,
+          admin_name: userProfile?.full_name || user?.email || 'Admin',
+          target_user_id: targetUser?.id,
+          target_user_name: targetUser?.full_name || targetUser?.email || 'N/A',
+          action: action,
+          details: details
+        })
+
+      if (error) throw error
+      fetchActivityLogs()
+    } catch (error) {
+      console.error('Error recording admin activity:', error)
+    }
+  }
 
   const fetchCurrentUser = async () => {
     try {
@@ -54,6 +95,22 @@ function AdminDashboard({ onLogout }) {
     }
   }
 
+  const cleanupExpiredUsers = async () => {
+    try {
+      const thirtyDaysAgo = new Date()
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .lt('deleted_at', thirtyDaysAgo.toISOString())
+
+      if (error) throw error
+    } catch (error) {
+      console.error('Error during database cleanup:', error)
+    }
+  }
+
   const fetchAllUsers = async () => {
     try {
       setLoading(true)
@@ -64,7 +121,19 @@ function AdminDashboard({ onLogout }) {
 
       if (error) throw error
 
-      setUsers(data || [])
+      const now = new Date()
+      const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
+
+      // Separate active and recently deleted users
+      const active = (data || []).filter(u => !u.deleted_at)
+      const deleted = (data || []).filter(u => {
+        if (!u.deleted_at) return false
+        const deleteDate = new Date(u.deleted_at)
+        return (now - deleteDate) < thirtyDaysMs
+      })
+
+      setUsers(active)
+      setDeletedUsers(deleted)
     } catch (error) {
       console.error('Error fetching logs:', error)
       setUsers([
@@ -72,6 +141,7 @@ function AdminDashboard({ onLogout }) {
         { id: '2', full_name: 'Jane Smith', role: 'supervisor', employee_id: 'SUP-001' },
         { id: '3', full_name: 'Admin User', role: 'admin', employee_id: 'ADM-001' },
       ])
+      setDeletedUsers([])
     } finally {
       setLoading(false)
     }
@@ -96,7 +166,7 @@ function AdminDashboard({ onLogout }) {
 
   const handleDeleteUser = async (targetUser) => {
     const confirmDelete = window.confirm(
-      `Are you sure you want to delete user ${targetUser.full_name || targetUser.email}? This action will permanently remove their profile data.`
+      `Are you sure you want to move user ${targetUser.full_name || targetUser.email} to the trash? They can be restored within 30 days.`
     )
 
     if (confirmDelete) {
@@ -104,12 +174,13 @@ function AdminDashboard({ onLogout }) {
         setLoading(true)
         const { error } = await supabase
           .from('users')
-          .delete()
+          .update({ deleted_at: new Date().toISOString() })
           .eq('id', targetUser.id)
 
         if (error) throw error
 
-        alert('User deleted successfully')
+        alert('User moved to trash successfully')
+        logAdminActivity(targetUser, 'DELETE_USER', 'Moved user to the trash (soft-delete)')
         fetchAllUsers() // Refresh the list
       } catch (error) {
         console.error('Error deleting user:', error)
@@ -117,6 +188,27 @@ function AdminDashboard({ onLogout }) {
       } finally {
         setLoading(false)
       }
+    }
+  }
+
+  const handleRestoreUser = async (targetUser) => {
+    try {
+      setLoading(true)
+      const { error } = await supabase
+        .from('users')
+        .update({ deleted_at: null })
+        .eq('id', targetUser.id)
+
+      if (error) throw error
+
+      alert('User restored successfully')
+      logAdminActivity(targetUser, 'RESTORE_USER', 'Restored user from trash')
+      fetchAllUsers()
+    } catch (error) {
+      console.error('Error restoring user:', error)
+      alert('Failed to restore user: ' + error.message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -139,7 +231,8 @@ function AdminDashboard({ onLogout }) {
   }
 
   const menuItems = [
-    { id: 'dashboard', label: 'User Logs', icon: '📋' },
+    { id: 'dashboard', label: 'User Logs', icon: null },
+    { id: 'activity', label: 'Activity Logs', icon: null },
   ]
 
   const getRoleBadgeColor = (role) => {
@@ -220,124 +313,254 @@ function AdminDashboard({ onLogout }) {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
-          <div className="space-y-6">
-            {/* Page Title */}
-            <div>
-              <h2 className="text-3xl font-bold text-gray-900">User Logs</h2>
-              <p className="text-gray-600 mt-1">Manage and monitor system users and their roles</p>
-            </div>
+          {activePage === 'dashboard' ? (
+            <div className="space-y-6">
+              {/* Page Title */}
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">User Logs</h2>
+                <p className="text-gray-600 mt-1">Manage and monitor system users and their roles</p>
+              </div>
 
-            {/* Filter Controls */}
-            <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
-              {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
-                <button
-                  key={role}
-                  onClick={() => setRoleFilter(role)}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${roleFilter === role
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'text-gray-600 hover:bg-gray-100'
-                    }`}
-                >
-                  {role}
-                </button>
-              ))}
-            </div>
+              {/* Filter Controls */}
+              <div className="flex items-center space-x-2 bg-white p-2 rounded-lg shadow-sm w-fit border border-gray-200">
+                {['All', 'Miner', 'Supervisor', 'Admin'].map(role => (
+                  <button
+                    key={role}
+                    onClick={() => setRoleFilter(role)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${roleFilter === role
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-600 hover:bg-gray-100'
+                      }`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
 
-            {/* Users Log Table */}
-            <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-visible">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
-                      <th className="px-6 py-4 font-semibold">Name</th>
-                      <th className="px-6 py-4 font-semibold">Unique ID</th>
-                      <th className="px-6 py-4 font-semibold">Role</th>
-                      <th className="px-6 py-4 font-semibold text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {loading ? (
-                      <tr>
-                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
-                          Loading user data...
-                        </td>
+              {/* Users Log Table */}
+              <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-visible">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-4 font-semibold">Name</th>
+                        <th className="px-6 py-4 font-semibold">Unique ID</th>
+                        <th className="px-6 py-4 font-semibold">Role</th>
+                        <th className="px-6 py-4 font-semibold text-right">Actions</th>
                       </tr>
-                    ) : filteredUsers.length === 0 ? (
-                      <tr>
-                        <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
-                          No users found with role "{roleFilter}"
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredUsers.map((userItem) => (
-                        <tr
-                          key={userItem.id}
-                          className="hover:bg-gray-50 transition-colors cursor-pointer"
-                          onClick={() => handleRowClick(userItem)}
-                        >
-                          <td className="px-6 py-4">
-                            <div className="flex items-center">
-                              <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold mr-3">
-                                {userItem.full_name?.charAt(0) || userItem.email?.charAt(0) || '?'}
-                              </div>
-                              <div className="font-medium text-gray-900">{userItem.full_name || 'N/A'}</div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-sm font-mono text-gray-600">
-                            {userItem.employee_id || userItem.id?.slice(0, 8) || 'N/A'}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(userItem.role)}`}>
-                              {userItem.role || 'Unassigned'}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right relative">
-                            <div
-                              className="inline-block relative"
-                              ref={activeMenuId === userItem.id ? menuRef : null}
-                            >
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setActiveMenuId(activeMenuId === userItem.id ? null : userItem.id)
-                                }}
-                                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
-                              >
-                                <span className="text-xl font-bold leading-none">⋮</span>
-                              </button>
-
-                              {activeMenuId === userItem.id && (
-                                <div
-                                  className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200 ring-1 ring-black ring-opacity-5"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  <button
-                                    onClick={() => handleAction('Edit', userItem)}
-                                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-                                  >
-                                    Edit
-                                  </button>
-                                  <button
-                                    onClick={() => handleAction('Delete', userItem)}
-                                    className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700"
-                                  >
-                                    Delete
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {loading ? (
+                        <tr>
+                          <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                            Loading user data...
                           </td>
                         </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                      ) : filteredUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
+                            No users found with role "{roleFilter}"
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredUsers.map((userItem) => (
+                          <tr
+                            key={userItem.id}
+                            className="hover:bg-gray-50 transition-colors cursor-pointer"
+                            onClick={() => handleRowClick(userItem)}
+                          >
+                            <td className="px-6 py-4">
+                              <div className="flex items-center">
+                                <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600 font-bold mr-3">
+                                  {userItem.full_name?.charAt(0) || userItem.email?.charAt(0) || '?'}
+                                </div>
+                                <div className="font-medium text-gray-900">{userItem.full_name || 'N/A'}</div>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-mono text-gray-600">
+                              {userItem.employee_id || userItem.id?.slice(0, 8) || 'N/A'}
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(userItem.role)}`}>
+                                {userItem.role || 'Unassigned'}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-right relative">
+                              <div
+                                className="inline-block relative"
+                                ref={activeMenuId === userItem.id ? menuRef : null}
+                              >
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setActiveMenuId(activeMenuId === userItem.id ? null : userItem.id)
+                                  }}
+                                  className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100 transition-colors"
+                                >
+                                  <span className="text-xl font-bold leading-none">⋮</span>
+                                </button>
+
+                                {activeMenuId === userItem.id && (
+                                  <div
+                                    className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-50 border border-gray-200 ring-1 ring-black ring-opacity-5"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <button
+                                      onClick={() => handleAction('Edit', userItem)}
+                                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => handleAction('Delete', userItem)}
+                                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700"
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
+                  Showing {filteredUsers.length} {roleFilter === 'All' ? 'users' : roleFilter.toLowerCase() + ' accounts'}
+                </div>
               </div>
-              <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 text-xs text-gray-500">
-                Showing {filteredUsers.length} {roleFilter === 'All' ? 'users' : roleFilter.toLowerCase() + ' accounts'}
+
+              {/* Deleted Users Section */}
+              {deletedUsers.length > 0 && (
+                <div className="pt-8 border-t border-gray-200">
+                  <div className="mb-4">
+                    <h2 className="text-2xl font-bold text-gray-900">Deleted Accounts</h2>
+                    <p className="text-gray-600 mt-1">Users in this list will be permanently purged after 30 days.</p>
+                  </div>
+
+                  <div className="bg-white rounded-lg shadow-md border border-red-100 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-red-50/50 border-b border-red-100 text-red-900/60 text-xs uppercase tracking-wider">
+                            <th className="px-6 py-4 font-semibold">User</th>
+                            <th className="px-6 py-4 font-semibold">Deleted</th>
+                            <th className="px-6 py-4 font-semibold">Auto-Purge In</th>
+                            <th className="px-6 py-4 font-semibold text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {deletedUsers.map((userItem) => {
+                            const daysDeleted = Math.floor((new Date() - new Date(userItem.deleted_at)) / (1000 * 60 * 60 * 24))
+                            const daysLeft = 30 - daysDeleted
+
+                            return (
+                              <tr key={userItem.id} className="bg-gray-50/30">
+                                <td className="px-6 py-4">
+                                  <div className="flex items-center opacity-75">
+                                    <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 font-bold mr-3">
+                                      {userItem.full_name?.charAt(0) || userItem.email?.charAt(0)}
+                                    </div>
+                                    <div>
+                                      <div className="font-medium text-gray-700">{userItem.full_name || 'N/A'}</div>
+                                      <div className="text-xs text-gray-400">{userItem.role}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="px-6 py-4 text-sm text-gray-600 font-medium">
+                                  {daysDeleted === 0 ? 'Today' : `${daysDeleted} ${daysDeleted === 1 ? 'day' : 'days'} ago`}
+                                </td>
+                                <td className="px-6 py-4">
+                                  <span className={`text-xs font-bold px-2 py-1 rounded-full ${daysLeft <= 5 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}`}>
+                                    {daysLeft} days
+                                  </span>
+                                </td>
+                                <td className="px-6 py-4 text-right">
+                                  <button
+                                    onClick={() => handleRestoreUser(userItem)}
+                                    className="text-blue-600 hover:text-blue-800 text-sm font-bold bg-white px-3 py-1.5 rounded-lg transition-colors border border-blue-200 shadow-sm hover:shadow"
+                                  >
+                                    Restore Account
+                                  </button>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Page Title */}
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">Activity Logs</h2>
+                <p className="text-gray-600 mt-1">Audit trail of all administrative actions and system changes</p>
+              </div>
+
+              {/* Activity Logs Table */}
+              <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-4 font-semibold">Timestamp</th>
+                        <th className="px-6 py-4 font-semibold">Administrator</th>
+                        <th className="px-6 py-4 font-semibold">Action</th>
+                        <th className="px-6 py-4 font-semibold">Target User</th>
+                        <th className="px-6 py-4 font-semibold">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {activityLogs.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-6 py-8 text-center text-gray-500 italic">
+                            No activity logs recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        activityLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">
+                              {new Date(log.created_at).toLocaleString()}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center">
+                                <div className="w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center text-[10px] font-bold text-blue-600 mr-2">
+                                  {log.admin_name?.charAt(0)}
+                                </div>
+                                <span className="text-sm font-semibold text-gray-900">{log.admin_name}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-1 text-[10px] font-black rounded-full uppercase tracking-tighter ${log.action === 'DELETE_USER' ? 'bg-red-100 text-red-700' :
+                                log.action === 'RESTORE_USER' ? 'bg-green-100 text-green-700' :
+                                  log.action === 'EDIT_PROFILE' ? 'bg-blue-100 text-blue-700' :
+                                    'bg-gray-100 text-gray-700'
+                                }`}>
+                                {log.action?.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600 font-medium">
+                              {log.target_user_name}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                              {log.details}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </main>
         <Footer />
       </div>
@@ -350,6 +573,9 @@ function AdminDashboard({ onLogout }) {
         }}
         user={editingUser || { ...user, ...userProfile }}
         onUpdate={() => {
+          if (editingUser) {
+            logAdminActivity(editingUser, 'EDIT_PROFILE', 'Updated user profile information or system role')
+          }
           fetchCurrentUser()
           fetchAllUsers()
         }}

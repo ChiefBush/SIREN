@@ -12,12 +12,12 @@ const sensorDbAnonKey = process.env.REACT_APP_SENSOR_DB_ANON_KEY
 let configValid = true
 
 if (!supabaseUrl || supabaseUrl === 'YOUR_SUPABASE_URL' || !supabaseUrl.startsWith('http')) {
-  console.error('❌ ERROR: REACT_APP_SUPABASE_URL is not set or invalid.')
+  console.error('[ERROR]: REACT_APP_SUPABASE_URL is not set or invalid.')
   configValid = false
 }
 
 if (!supabaseAnonKey || supabaseAnonKey === 'YOUR_SUPABASE_ANON_KEY' || supabaseAnonKey.length < 50) {
-  console.error('❌ ERROR: REACT_APP_SUPABASE_ANON_KEY is not set or invalid.')
+  console.error('[ERROR]: REACT_APP_SUPABASE_ANON_KEY is not set or invalid.')
   configValid = false
 }
 
@@ -26,9 +26,9 @@ let supabase
 if (configValid) {
   try {
     supabase = createClient(supabaseUrl, supabaseAnonKey)
-    console.log('✅ Primary Supabase client initialized')
+    console.log('[SUCCESS] Primary Supabase client initialized')
   } catch (error) {
-    console.error('❌ Error creating primary Supabase client:', error)
+    console.error('[ERROR] Error creating primary Supabase client:', error)
     supabase = createClient('https://placeholder.supabase.co', 'placeholder-key')
   }
 } else {
@@ -40,13 +40,13 @@ let sensorSupabase
 if (sensorDbUrl && sensorDbAnonKey && sensorDbUrl.startsWith('http')) {
   try {
     sensorSupabase = createClient(sensorDbUrl, sensorDbAnonKey)
-    console.log('✅ Sensor database client initialized')
+    console.log('[SUCCESS] Sensor database client initialized')
   } catch (error) {
-    console.error('❌ Error creating sensor database client:', error)
+    console.error('[ERROR] Error creating sensor database client:', error)
     sensorSupabase = supabase // Fallback to primary if fails
   }
 } else {
-  console.warn('⚠️ Sensor database credentials not found, falling back to primary client')
+  console.warn('[WARN] Sensor database credentials not found, falling back to primary client')
   sensorSupabase = supabase
 }
 

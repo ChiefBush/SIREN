@@ -11,3 +11,34 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+
+@media print {
+  nav, footer, .no-print, button {
+    display: none !important;
+  }
+  body, .min-h-screen {
+    background: white !important;
+    min-height: auto !important;
+  }
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+  .max-w-4xl {
+    max-width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .p-8, .px-8, .py-12 {
+    padding: 1rem !important;
+  }
+  .rounded-2xl, .rounded-xl {
+    border-radius: 0 !important;
+  }
+  .prose {
+    max-width: none !important;
+    color: black !important;
+  }
+}

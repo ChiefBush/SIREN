@@ -28,7 +28,7 @@ function App() {
         // Check sessionStorage first for faster role access
         const storedRole = sessionStorage.getItem('userRole')
         if (storedRole && ['miner', 'supervisor', 'admin'].includes(storedRole)) {
-          console.log('📦 Using role from sessionStorage:', storedRole)
+          console.log('[INFO] Using role from sessionStorage:', storedRole)
           setUserRole(storedRole)
           setLoading(false)
         }
@@ -48,7 +48,7 @@ function App() {
         // Check sessionStorage first for faster role access
         const storedRole = sessionStorage.getItem('userRole')
         if (storedRole && ['miner', 'supervisor', 'admin'].includes(storedRole)) {
-          console.log('📦 Using role from sessionStorage:', storedRole)
+          console.log('[INFO] Using role from sessionStorage:', storedRole)
           setUserRole(storedRole)
         }
         fetchUserRole(session.user.id)
@@ -64,44 +64,39 @@ function App() {
 
   const fetchUserRole = async (userId) => {
     try {
-      console.log('🔍 Fetching user role for userId:', userId)
+      console.log('[INFO] Fetching user role for userId:', userId)
       const { data, error } = await supabase
         .from('users')
-        .select('role, email, full_name')
+        .select('role, email, full_name, deleted_at')
         .eq('id', userId)
         .single()
 
       if (error) {
-        console.error('❌ Error fetching user role:', error)
-        console.error('Error details:', error.message, error.code)
-        // If user doesn't exist in users table, default to miner
+        console.error('[ERROR] Error fetching user role:', error)
         setUserRole('miner')
       } else {
-        console.log('📊 User data from database:', data)
-        console.log('📊 Raw role value:', data?.role, 'Type:', typeof data?.role)
+        // CHECK: Is the account soft-deleted?
+        if (data?.deleted_at) {
+          console.warn('[AUTH] Access denied: Account is in the trash.')
+          alert('This account has been deactivated. Please contact an administrator.')
+          handleLogout()
+          return
+        }
 
-        // Normalize role to lowercase to ensure it matches route protection
+        console.log('[INFO] User data from database:', data)
         const role = (data?.role || 'miner').toLowerCase().trim()
         const validRoles = ['miner', 'supervisor', 'admin']
 
-        console.log('📊 Normalized role:', role)
-
-        // Validate role
         if (validRoles.includes(role)) {
-          console.log(`✅ Setting userRole to: "${role}"`)
           setUserRole(role)
-          // Also store in sessionStorage for faster access
           sessionStorage.setItem('userRole', role)
         } else {
-          console.error(`❌ INVALID ROLE: "${role}" is not in valid roles:`, validRoles)
-          console.error('Raw role from DB:', data?.role)
-          console.error('Full user data:', data)
           setUserRole('miner')
           sessionStorage.setItem('userRole', 'miner')
         }
       }
     } catch (error) {
-      console.error('❌ Exception fetching user role:', error)
+      console.error('[ERROR] Exception fetching user role:', error)
       setUserRole('miner') // Default role
     } finally {
       setLoading(false)

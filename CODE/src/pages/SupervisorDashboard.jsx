@@ -25,136 +25,49 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   // Get sensor data for dashboard
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
 
-  useEffect(() => {
-    fetchUser()
-    fetchMiners()
-    fetchActiveStatuses()
+  const showNotification = (data) => {
+    const notificationId = data.application_id ? `leave-${data.application_id}` : Date.now() + Math.random()
 
-    // Update time every second
-    const timer = setInterval(() => {
-      setCurrentTime(new Date())
-    }, 1000)
-
-    // Refresh active statuses periodically
-    const statusInterval = setInterval(() => {
-      fetchActiveStatuses()
-    }, 30000) // Every 30 seconds
-
-    // Poll for new leave applications every 15 seconds (fallback if real-time fails)
-    const leavePollInterval = setInterval(() => {
-      // This will trigger refresh when supervisor is on leave page
-      // The LeaveApplication component handles its own polling
-    }, 15000)
-
-    // Subscribe to attendance changes for real-time updates
-    const attendanceChannel = supabase
-      .channel('attendance-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'attendance'
-        },
-        () => {
-          fetchActiveStatuses()
-        }
-      )
-      .subscribe()
-
-    // Subscribe to leave application notifications
-    const leaveChannel = supabase
-      .channel('supervisor-leave-notifications', {
-        config: {
-          broadcast: { self: true }
-        }
-      })
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'leave_applications'
-        },
-        (payload) => {
-          console.log('Leave application INSERT detected:', payload)
-          handleNewLeaveApplication(payload.new)
-        }
-      )
-      .subscribe(async (status) => {
-        console.log('Leave channel subscription status:', status)
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to leave application notifications')
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.error('❌ Leave channel error:', status)
-        }
-      })
-
-    // Also listen for broadcast messages (backup method)
-    const notificationChannel = supabase.channel('supervisor-broadcast', {
-      config: {
-        broadcast: { self: true }
+    setNotifications(prev => {
+      // Prevent duplicate notifications for the same application
+      if (prev.some(n => n.id === notificationId)) {
+        return prev
       }
-    })
-    notificationChannel
-      .on('broadcast', { event: 'new-leave-application' }, (payload) => {
-        console.log('Broadcast notification received:', payload)
-        showNotification(payload.payload)
-      })
-      .subscribe(async (status) => {
-        console.log('Broadcast channel subscription status:', status)
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to broadcast channel')
-        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-          console.error('❌ Broadcast channel error:', status)
-        }
-      })
 
-    return () => {
-      clearInterval(timer)
-      clearInterval(statusInterval)
-      clearInterval(leavePollInterval)
-      supabase.removeChannel(attendanceChannel)
-      supabase.removeChannel(leaveChannel)
-      supabase.removeChannel(notificationChannel)
-    }
-  }, [activePage])
+      // Schedule auto-removal outside the updater's return but within the function scope
+      // Note: This pattern is slightly better for readability
+      setTimeout(() => {
+        setNotifications(current => current.filter(n => n.id !== notificationId))
+      }, 15000)
+
+      return [{
+        id: notificationId,
+        type: 'leave-application',
+        message: `New leave application from ${data.miner_name} (${data.employee_id})`,
+        details: data,
+        timestamp: new Date()
+      }, ...prev]
+    })
+  }
 
   const handleNewLeaveApplication = async (application) => {
     try {
-      console.log('New leave application received:', application)
       // Fetch miner details
-      const { data: minerData, error: minerError } = await supabase
+      const { data: minerData } = await supabase
         .from('users')
         .select('full_name, employee_id')
         .eq('id', application.user_id)
         .single()
 
-      if (minerError) {
-        console.error('Error fetching miner data:', minerError)
-      }
-
-      if (minerData) {
-        showNotification({
-          application_id: application.id,
-          miner_name: minerData.full_name || 'Unknown',
-          employee_id: minerData.employee_id || 'N/A',
-          start_date: application.start_date,
-          end_date: application.end_date
-        })
-      } else {
-        // Show notification even if miner data fetch fails
-        showNotification({
-          application_id: application.id,
-          miner_name: 'Unknown Miner',
-          employee_id: 'N/A',
-          start_date: application.start_date,
-          end_date: application.end_date
-        })
-      }
+      showNotification({
+        application_id: application.id,
+        miner_name: minerData?.full_name || 'Unknown',
+        employee_id: minerData?.employee_id || 'N/A',
+        start_date: application.start_date,
+        end_date: application.end_date
+      })
     } catch (error) {
       console.error('Error handling new leave application:', error)
-      // Still show notification with basic info
       showNotification({
         application_id: application.id || 'unknown',
         miner_name: 'Unknown Miner',
@@ -165,24 +78,66 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
     }
   }
 
-  const showNotification = (data) => {
-    const notification = {
-      id: Date.now(),
-      type: 'leave-application',
-      message: `New leave application from ${data.miner_name} (${data.employee_id})`,
-      details: data,
-      timestamp: new Date()
+  const fetchPendingLeave = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('leave_applications')
+        .select('*')
+        .eq('status', 'pending')
+
+      if (error) {
+        console.error('Error fetching pending leave:', error)
+        return
+      }
+
+      if (data && data.length > 0) {
+        // Use a slight delay between multiple notifications for better visual clarity
+        data.forEach((application, index) => {
+          setTimeout(() => {
+            handleNewLeaveApplication(application)
+          }, index * 200)
+        })
+      }
+    } catch (error) {
+      console.error('Error in fetchPendingLeave:', error)
     }
-    setNotifications(prev => [notification, ...prev])
-
-    // If supervisor is on leave application page, trigger a refresh
-    // This will be handled by the LeaveApplication component's real-time subscription
-
-    // Auto-remove notification after 10 seconds
-    setTimeout(() => {
-      setNotifications(prev => prev.filter(n => n.id !== notification.id))
-    }, 10000)
   }
+
+  useEffect(() => {
+    // Initial load
+    fetchUser()
+    fetchMiners()
+    fetchActiveStatuses()
+
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000)
+    const statusInterval = setInterval(() => fetchActiveStatuses(), 30000)
+
+    const attendanceChannel = supabase.channel('attendance-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, fetchActiveStatuses)
+      .subscribe()
+
+    const leaveChannel = supabase.channel('supervisor-leave-notifications')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_applications' }, (payload) => {
+        handleNewLeaveApplication(payload.new)
+      })
+      .subscribe()
+
+    const notificationChannel = supabase.channel('supervisor-broadcast')
+      .on('broadcast', { event: 'new-leave-application' }, (payload) => {
+        showNotification(payload.payload)
+      })
+      .subscribe()
+
+    fetchPendingLeave()
+
+    return () => {
+      clearInterval(timer)
+      clearInterval(statusInterval)
+      supabase.removeChannel(attendanceChannel)
+      supabase.removeChannel(leaveChannel)
+      supabase.removeChannel(notificationChannel)
+    }
+  }, [userId])
 
   const removeNotification = (id) => {
     setNotifications(prev => prev.filter(n => n.id !== id))
@@ -350,10 +305,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   }
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-    { id: 'incidents', label: 'Incident Reports', icon: '⚠️' },
-    { id: 'leave', label: 'Leave Management', icon: '📝' },
-    { id: 'miner-logs', label: 'Miner Logs', icon: '📋' }
+    { id: 'dashboard', label: 'Dashboard', icon: null },
+    { id: 'incidents', label: 'Incident Reports', icon: null },
+    { id: 'leave', label: 'Leave Management', icon: null },
+    { id: 'miner-logs', label: 'Miner Logs', icon: null }
   ]
 
   return (
@@ -430,7 +385,11 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
             {notifications.map((notification) => (
               <div
                 key={notification.id}
-                className="bg-blue-600 text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out"
+                onClick={() => {
+                  setActivePage('leave')
+                  removeNotification(notification.id)
+                }}
+                className="bg-blue-600 text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer hover:bg-blue-700"
               >
                 <div className="flex-shrink-0">
                   <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
@@ -447,7 +406,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                   )}
                 </div>
                 <button
-                  onClick={() => removeNotification(notification.id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    removeNotification(notification.id)
+                  }}
                   className="flex-shrink-0 text-white hover:text-gray-200"
                 >
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -481,71 +443,35 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                 </div>
               )}
 
-              {/* Page Title */}
-              <div>
-                <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
-                <p className="text-gray-600 mt-1">Personal status and safety monitoring</p>
-              </div>
+              {/* Page Title & System Status */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
+                  <p className="text-gray-600 mt-1">Personal status and safety monitoring</p>
+                </div>
 
-              {/* Overall System Status Card */}
-              <div className={`rounded-lg p-6 shadow-md ${allSystemsNormal ? 'bg-green-500' : criticalCount > 0 ? 'bg-red-500' : 'bg-yellow-500'
-                } text-white`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {/* Compact System Status Badge */}
+                <div className={`rounded-xl px-6 py-3 shadow-md border ${allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
+                  } text-white min-w-[240px]`}>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                       </svg>
                     </div>
                     <div>
-                      <h3 className="text-2xl font-bold">
+                      <h3 className="text-lg font-bold leading-tight">
                         {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
-                      <p className="text-sm opacity-90 mt-1">
-                        Last updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                      <p className="text-[10px] opacity-90 font-medium uppercase tracking-wider">
+                        Updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
                       </p>
                     </div>
                   </div>
-                  {allSystemsNormal && (
-                    <div className="text-2xl">↑</div>
-                  )}
                 </div>
               </div>
 
-              {/* Summary Status Cards */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="bg-green-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="text-4xl font-bold">{safeCount}</div>
-                  <div className="text-lg font-medium mt-2">Safe</div>
-                </div>
-                <div className="bg-yellow-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-4xl font-bold">{warningCount}</div>
-                      <div className="text-lg font-medium mt-2">Warning</div>
-                    </div>
-                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-                <div className="bg-red-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-4xl font-bold">{criticalCount}</div>
-                      <div className="text-lg font-medium mt-2">Critical</div>
-                    </div>
-                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              {/* Dashboard Charts Section */}
-              <DashboardCharts userId={null} userEmail={user?.email} />
-
-              {/* Bottom Information Cards */}
+              {/* Summary Information Cards */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* Active Sensor Alerts */}
                 <div className="bg-white rounded-lg p-6 shadow-md">
@@ -594,6 +520,41 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                   </p>
                 </div>
               </div>
+
+
+              {/* Summary Status Cards */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-green-500 rounded-lg p-6 text-white shadow-md">
+                  <div className="text-4xl font-bold">{safeCount}</div>
+                  <div className="text-lg font-medium mt-2">Safe</div>
+                </div>
+                <div className="bg-yellow-500 rounded-lg p-6 text-white shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-4xl font-bold">{warningCount}</div>
+                      <div className="text-lg font-medium mt-2">Warning</div>
+                    </div>
+                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+                <div className="bg-red-500 rounded-lg p-6 text-white shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-4xl font-bold">{criticalCount}</div>
+                      <div className="text-lg font-medium mt-2">Critical</div>
+                    </div>
+                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Dashboard Charts Section */}
+              <DashboardCharts userId={null} userEmail={user?.email} />
+
             </div>
           )}
 

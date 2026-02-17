@@ -2,7 +2,7 @@ import React from 'react';
 import FooterPageLayout from '../components/FooterPageLayout';
 
 const TermsConditions = () => (
-    <FooterPageLayout title="Terms & Conditions">
+    <FooterPageLayout title="Terms & Conditions" showDownload={true}>
         <section>
             <p>These Terms and Conditions govern access to and use of this application, its dashboards, and associated hardware systems.</p>
             <p className="font-bold text-gray-900">By accessing or using the system, you agree to be bound by these Terms. If you do not agree, you must not use the system.</p>

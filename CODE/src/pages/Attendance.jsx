@@ -305,34 +305,31 @@ function Attendance({ userId = null, isReadOnly = false }) {
 
     return (
         <div className="space-y-6">
-            {/* Page Title */}
-            <div>
-                <h2 className="text-3xl font-bold text-gray-900">Attendance</h2>
-                <p className="text-gray-600 mt-1">Check in and check out for your shift</p>
-            </div>
+            {/* Page Title & Current Time */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-3xl font-bold text-gray-900">Attendance</h2>
+                    <p className="text-gray-600 mt-1">Check in and check out for your shift</p>
+                </div>
 
-            {/* Current Time Display */}
-            <div className="bg-white rounded-lg p-6 shadow-md">
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h3 className="text-lg font-semibold text-gray-900">Current Time</h3>
-                        <p className="text-3xl font-bold text-blue-600 mt-2">
-                            {currentTime.toLocaleTimeString('en-US', {
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                second: '2-digit',
-                                hour12: true
-                            })}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-1">
-                            {currentTime.toLocaleDateString('en-US', {
-                                weekday: 'long',
-                                year: 'numeric',
-                                month: 'long',
-                                day: 'numeric'
-                            })}
-                        </p>
-                    </div>
+                {/* Compact Current Time Display */}
+                <div className="bg-white rounded-xl px-6 py-3 shadow-md border border-gray-50 text-center min-w-[200px]">
+                    <p className="text-2xl font-bold text-blue-600">
+                        {currentTime.toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: true
+                        })}
+                    </p>
+                    <p className="text-xs text-gray-500 font-medium tracking-wide">
+                        {currentTime.toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                        })}
+                    </p>
                 </div>
             </div>
 

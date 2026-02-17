@@ -64,7 +64,7 @@ function SensorMetrics({ userId = null, userEmail = null }) {
             {/* Sensor Data Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 <SensorCard
-                    icon="🔥"
+                    icon={null}
                     title="MQ2"
                     subtitle="Smoke & Gas"
                     value={sensorData.mq2}
@@ -74,7 +74,7 @@ function SensorMetrics({ userId = null, userEmail = null }) {
                     criticalThreshold={500}
                 />
                 <SensorCard
-                    icon="💨"
+                    icon={null}
                     title="MQ9"
                     subtitle="CO Level"
                     value={sensorData.mq9}
@@ -84,7 +84,7 @@ function SensorMetrics({ userId = null, userEmail = null }) {
                     criticalThreshold={400}
                 />
                 <SensorCard
-                    icon="💨"
+                    icon={null}
                     title="MQ135"
                     subtitle="Air Quality"
                     value={sensorData.mq135}
@@ -95,7 +95,7 @@ function SensorMetrics({ userId = null, userEmail = null }) {
                     statusText={sensorData.airQuality}
                 />
                 <SensorCard
-                    icon="🌡️"
+                    icon={null}
                     title="Temperature"
                     subtitle="DHT11"
                     value={sensorData.temperature}
@@ -105,7 +105,7 @@ function SensorMetrics({ userId = null, userEmail = null }) {
                     criticalThreshold={45}
                 />
                 <SensorCard
-                    icon="💧"
+                    icon={null}
                     title="Humidity"
                     subtitle="DHT11"
                     value={sensorData.humidity}

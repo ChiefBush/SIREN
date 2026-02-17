@@ -160,12 +160,12 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
   }
 
   const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'dashboard', label: 'Dashboard', icon: null },
     ...((isReadOnly && !isAdminView) ? [] : [
-      { id: 'sensor-metrics', label: 'Sensor Metrics', icon: '📡' },
-      { id: 'leave', label: 'Leave Application', icon: '📝' }
+      { id: 'sensor-metrics', label: 'Sensor Metrics', icon: null },
+      { id: 'leave', label: 'Leave Application', icon: null }
     ]),
-    { id: 'attendance', label: 'Attendance', icon: '🕐' }
+    { id: 'attendance', label: 'Attendance', icon: null }
   ]
 
   return (
@@ -298,36 +298,34 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                 </div>
               )}
 
-              {/* Page Title */}
-              <div>
-                <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
-                <p className="text-gray-600 mt-1">Personal status and safety monitoring</p>
-              </div>
+              {/* Page Title & System Status */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-3xl font-bold text-gray-900">Dashboard</h2>
+                  <p className="text-gray-600 mt-1">Personal status and safety monitoring</p>
+                </div>
 
-              {/* Overall System Status Card */}
-              <div className={`rounded-lg p-6 shadow-md ${allSystemsNormal ? 'bg-green-500' : criticalCount > 0 ? 'bg-red-500' : 'bg-yellow-500'
-                } text-white`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 bg-white bg-opacity-20 rounded-lg flex items-center justify-center">
-                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {/* Compact System Status Badge */}
+                <div className={`rounded-xl px-6 py-3 shadow-md border ${allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
+                  } text-white min-w-[240px]`}>
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                       </svg>
                     </div>
                     <div>
-                      <h3 className="text-2xl font-bold">
+                      <h3 className="text-lg font-bold leading-tight">
                         {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
-                      <p className="text-sm opacity-90 mt-1">
-                        Last updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                      <p className="text-[10px] opacity-90 font-medium uppercase tracking-wider">
+                        Updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
                       </p>
                     </div>
                   </div>
-                  {allSystemsNormal && (
-                    <div className="text-2xl">↑</div>
-                  )}
                 </div>
               </div>
+
 
               {/* Summary Status Cards */}
               <div className="grid grid-cols-3 gap-4">
