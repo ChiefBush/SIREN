@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import MinerDashboard from './MinerDashboard'
 
 function MinerLogs() {
-  const navigate = useNavigate()
   const [miners, setMiners] = useState([])
   const [activeStatuses, setActiveStatuses] = useState({})
+  const [selectedMinerId, setSelectedMinerId] = useState(null)
 
   useEffect(() => {
     fetchMiners()
@@ -33,6 +33,10 @@ function MinerLogs() {
         console.error('Error fetching miners:', error)
       } else {
         setMiners(data || [])
+        // Select the first miner by default if none selected
+        if (data && data.length > 0 && !selectedMinerId) {
+          setSelectedMinerId(data[0].id)
+        }
       }
     } catch (error) {
       console.error('Error fetching miners:', error)
@@ -67,172 +71,100 @@ function MinerLogs() {
   }
 
   const handleMinerClick = (minerId) => {
-    navigate(`/supervisor/miners/${minerId}`)
+    setSelectedMinerId(minerId)
   }
 
   return (
-    <div className="space-y-6">
-      {/* Page Title */}
-      <div>
-        <h2 className="text-3xl font-bold text-gray-900">Miner Logs</h2>
-        <p className="text-gray-600 mt-1">Manage miners and view health and safety logs</p>
+    <div className="flex flex-col h-[calc(100vh-180px)] space-y-4">
+      <div className="flex-shrink-0">
+        <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Miner Monitoring</h2>
+        <p className="text-gray-500 font-medium text-sm">Real-time supervision and health telemetry</p>
       </div>
 
-      {/* Miner Management Section */}
-      <div className="space-y-6">
-        <div>
-          <h3 className="text-2xl font-bold text-gray-900">Miner Management</h3>
-          <p className="text-gray-600 mt-1">View and monitor all miners</p>
-        </div>
+      <div className="flex flex-1 overflow-hidden space-x-6">
+        {/* Left Column: Table (50%) */}
+        <div className="w-1/2 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-full">
+            <div className="p-4 border-b border-gray-100 bg-gray-50/50 flex items-center justify-between">
+              <h3 className="font-bold text-gray-900 uppercase text-xs tracking-widest">Miner Directory</h3>
+              <span className="text-[10px] font-black bg-blue-100 text-blue-600 px-2 py-1 rounded-full">{miners.length} TOTAL</span>
+            </div>
 
-        {miners.length === 0 ? (
-          <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <p className="text-gray-600 text-lg">No miners found</p>
-          </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow-md overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Employee ID
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      ID
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {miners.map((miner) => (
-                    <tr
-                      key={miner.id}
-                      onClick={() => handleMinerClick(miner.id)}
-                      className="hover:bg-gray-50 cursor-pointer transition-colors"
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {miner.full_name || 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-500">{miner.email}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-500">{miner.employee_id || 'N/A'}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${activeStatuses[miner.id]
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                          }`}>
-                          {activeStatuses[miner.id] ? (
-                            <>
-                              <span className="w-2 h-2 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
-                              Active
-                            </>
-                          ) : (
-                            'Inactive'
-                          )}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-gray-500 font-mono">{miner.id}</div>
-                      </td>
+            <div className="flex-1 overflow-y-auto">
+              {miners.length === 0 ? (
+                <div className="p-8 text-center">
+                  <p className="text-gray-400 italic">No miners found</p>
+                </div>
+              ) : (
+                <table className="min-w-full divide-y divide-gray-100">
+                  <thead className="bg-white sticky top-0 z-10">
+                    <tr>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Name</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Employee ID</th>
+                      <th className="px-6 py-4 text-left text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-50">
+                    {miners.map((miner) => (
+                      <tr
+                        key={miner.id}
+                        onClick={() => handleMinerClick(miner.id)}
+                        className={`cursor-pointer transition-all duration-200 ${selectedMinerId === miner.id ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs ${selectedMinerId === miner.id ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                              {miner.full_name?.charAt(0) || '?'}
+                            </div>
+                            <div>
+                              <div className="text-sm font-bold text-gray-900">{miner.full_name || 'N/A'}</div>
+                              <div className="text-[10px] text-gray-400 font-medium">{miner.email}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-xs font-mono text-gray-500 bg-gray-100 px-2 py-1 rounded">{miner.employee_id || '---'}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-tighter ${activeStatuses[miner.id] ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${activeStatuses[miner.id] ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></span>
+                            {activeStatuses[miner.id] ? 'Active' : 'Offline'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
-        {/* Health Section - Watch Data */}
-        <div className="space-y-4">
-          <div>
-            <h3 className="text-2xl font-bold text-gray-900">Health Monitoring</h3>
-            <p className="text-gray-600 mt-1">Real-time health data from connected watches</p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {miners.map((miner) => (
-              <div key={miner.id} className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-900">{miner.full_name || 'N/A'}</h4>
-                    <p className="text-sm text-gray-500">{miner.employee_id || 'N/A'}</p>
-                  </div>
-                  <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
-                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {/* Heart Rate (BPM) */}
-                  <div className="border-l-4 border-red-500 pl-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Heart Rate</p>
-                        <p className="text-2xl font-bold text-gray-900 mt-1">
-                          <span className="text-red-600">--</span>
-                          <span className="text-sm text-gray-500 ml-1">BPM</span>
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                        <svg className="w-6 h-6 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Placeholder - Watch data pending</p>
-                  </div>
-
-                  {/* SpO2 */}
-                  <div className="border-l-4 border-blue-500 pl-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">SpO2</p>
-                        <p className="text-2xl font-bold text-gray-900 mt-1">
-                          <span className="text-blue-600">--</span>
-                          <span className="text-sm text-gray-500 ml-1">%</span>
-                        </p>
-                      </div>
-                      <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                        <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Placeholder - Watch data pending</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="flex items-center text-xs text-gray-500">
-                    <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>Last updated: --</span>
-                  </div>
+        {/* Right Column: Detailed Logs (50%) */}
+        <div className="w-1/2 bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          {selectedMinerId ? (
+            <div className="h-full flex flex-col">
+              <div className="p-4 border-b border-gray-100 bg-blue-600 flex items-center justify-between">
+                <h3 className="font-bold text-white uppercase text-xs tracking-widest">Detailed Telemetry</h3>
+                <div className="flex items-center space-x-2">
+                  <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                  <span className="text-[10px] text-blue-100 font-bold uppercase tracking-widest">Live Monitor</span>
                 </div>
               </div>
-            ))}
-          </div>
-
-          {miners.length === 0 && (
-            <div className="bg-white rounded-lg shadow-md p-8 text-center">
-              <p className="text-gray-600 text-lg">No miners available for health monitoring</p>
+              <div className="flex-1 overflow-hidden">
+                <MinerDashboard userId={selectedMinerId} isReadOnly={true} embedded={true} />
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-full text-center p-12 bg-gray-50/50">
+              <div className="w-16 h-16 bg-blue-50 text-blue-200 rounded-3xl flex items-center justify-center mb-4">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              </div>
+              <h4 className="text-gray-900 font-black uppercase tracking-tighter text-lg">No Miner Selected</h4>
+              <p className="text-gray-500 text-sm mt-2 max-w-xs">Click on a miner record from the list to view their real-time health data and sensor history.</p>
             </div>
           )}
         </div>
@@ -242,4 +174,3 @@ function MinerLogs() {
 }
 
 export default MinerLogs
-

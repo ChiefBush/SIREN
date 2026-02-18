@@ -38,6 +38,7 @@ function DHT11Chart({ data, height = 300, isDashboard = false }) {
                         tick={{ fill: '#6b7280' }}
                         yAxisId="temp"
                         orientation="left"
+                        domain={['auto', 'auto']}
                         label={{ value: '°C', angle: -90, position: 'insideLeft', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <YAxis
@@ -46,6 +47,7 @@ function DHT11Chart({ data, height = 300, isDashboard = false }) {
                         tick={{ fill: '#6b7280' }}
                         yAxisId="humidity"
                         orientation="right"
+                        domain={['auto', 'auto']}
                         label={{ value: '%', angle: 90, position: 'insideRight', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <Tooltip

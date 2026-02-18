@@ -21,47 +21,48 @@ function DashboardCharts({ userId = null, userEmail = null }) {
         )
     }
 
-    // Prepare data for charts (convert Date objects to timestamps for recharts)
+    // Use full data for better detail unless it's extremely large
     const chartData = sensorHistory.map(item => ({
         ...item,
         time: item.time.getTime()
     }))
 
-    // Sample data to reduce congestion - show every 3rd point for cleaner display
-    const sampledData = chartData.filter((_, index) => index % 3 === 0)
-
     return (
         <div className="space-y-6">
-            <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">Sensor Data Charts</h3>
+            <div className="flex items-center justify-between">
+                <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Sensor Telemetry History</h3>
+                <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">High Resolution Mode</span>
+                </div>
             </div>
 
-            {/* Charts Grid - 3 charts in one row, responsive */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Charts Grid - Vertically stacked for better legibility when embedded */}
+            <div className="grid grid-cols-1 gap-8">
                 {/* Chart 1: Combined MQ Sensors */}
-                <div className="h-full">
+                <div className="w-full">
                     <CombinedMQChart
-                        data={sampledData}
-                        height={300}
-                        isDashboard={false}
+                        data={chartData}
+                        height={400}
+                        isDashboard={true}
                     />
                 </div>
 
                 {/* Chart 2: DHT11 (Temperature + Humidity) */}
-                <div className="h-full">
+                <div className="w-full">
                     <DHT11Chart
-                        data={sampledData}
-                        height={300}
-                        isDashboard={false}
+                        data={chartData}
+                        height={400}
+                        isDashboard={true}
                     />
                 </div>
 
                 {/* Chart 3: Fall Detection (Accelerometer + Gyroscope) */}
-                <div className="h-full">
+                <div className="w-full">
                     <FallDetectionChart
-                        data={sampledData}
-                        height={300}
-                        isDashboard={false}
+                        data={chartData}
+                        height={400}
+                        isDashboard={true}
                     />
                 </div>
             </div>

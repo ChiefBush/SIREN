@@ -36,6 +36,7 @@ function FallDetectionChart({ data, height = 300, isDashboard = false }) {
                         stroke="#6b7280"
                         style={{ fontSize }}
                         tick={{ fill: '#6b7280' }}
+                        domain={['auto', 'auto']}
                         label={{ value: 'Readings', angle: -90, position: 'insideLeft', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <Tooltip
