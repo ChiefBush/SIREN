@@ -78,7 +78,7 @@ function MinerLogs() {
     <div className="flex flex-col h-[calc(100vh-180px)] space-y-4">
       <div className="flex-shrink-0">
         <h2 className="text-3xl font-black text-gray-900 tracking-tighter uppercase">Miner Monitoring</h2>
-        <p className="text-gray-500 font-medium text-sm">Real-time supervision and health telemetry</p>
+        <p className="text-gray-500 font-medium text-sm">Real-time supervision and health stats</p>
       </div>
 
       <div className="flex flex-1 overflow-hidden space-x-6">
@@ -145,7 +145,7 @@ function MinerLogs() {
           {selectedMinerId ? (
             <div className="h-full flex flex-col">
               <div className="p-4 border-b border-gray-100 bg-blue-600 flex items-center justify-between">
-                <h3 className="font-bold text-white uppercase text-xs tracking-widest">Detailed Telemetry</h3>
+                <h3 className="font-bold text-white uppercase text-xs tracking-widest">Detailed Stats</h3>
                 <div className="flex items-center space-x-2">
                   <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
                   <span className="text-[10px] text-blue-100 font-bold uppercase tracking-widest">Live Monitor</span>

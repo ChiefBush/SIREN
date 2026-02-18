@@ -377,7 +377,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
             </div>
 
             {/* Charts Section */}
-            <DashboardCharts userId={userId || user?.id} userEmail={userProfile?.email} />
+            <DashboardCharts userId={userId || user?.id} userEmail={userProfile?.email} stacked={embedded} />
           </div>
         )}
 
@@ -462,7 +462,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                   </svg>
                 </button>
               )}
-              <h1 className="text-2xl font-black text-gray-900 tracking-tighter uppercase">Miner Dashboard</h1>
+              <h1 className="text-2xl font-bold text-gray-900">Miner Dashboard</h1>
               {isReadOnly && (
                 <div className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100">
                   Read-Only Monitor

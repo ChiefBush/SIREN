@@ -75,8 +75,7 @@ const PrivacyPolicy = () => (
                 </ul>
             </div>
             <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-3 uppercase tracking-wider text-sm">Children’s Data</h3>
-                <p>This system is not intended for use by individuals under 18. No data relating to children is knowingly collected.</p>
+
             </div>
         </section>
 
@@ -85,7 +84,7 @@ const PrivacyPolicy = () => (
             <p>Integrated platforms for storage or analytics operate under their own privacy policies. The project team is not responsible for independent practices of third parties.</p>
         </section>
 
-        <section className="bg-gray-950 text-white p-8 rounded-2xl text-center">
+        <section className="bg-blue-950 text-white p-8 rounded-2xl text-center">
             <h3 className="text-xl font-bold mb-4 mt-0">Privacy Contact</h3>
             <p className="text-gray-300">For questions, concerns, or requests related to this Privacy Policy or data handling practices, please contact the project administrators.</p>
         </section>

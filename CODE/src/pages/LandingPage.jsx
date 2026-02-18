@@ -30,7 +30,7 @@ function LandingPage() {
 
       <main className="flex-1">
         {/* Hero Section */}
-        <section className="relative overflow-hidden bg-gradient-to-b from-blue-900 to-indigo-900 pt-20 pb-32">
+        <section className="relative overflow-hidden bg-blue-950 pt-20 pb-32">
           {/* Decorative Elements */}
           <div className="absolute top-0 left-0 w-full h-full opacity-10">
             <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-400 rounded-full blur-[100px]"></div>
@@ -60,17 +60,17 @@ function LandingPage() {
 
         {/* The Problem & Solution Section */}
         <section className="py-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-stretch">
             {/* The Problem */}
-            <div className="bg-red-50 rounded-3xl p-10 border border-red-100 shadow-sm">
-              <div className="inline-flex items-center justify-center w-12 h-12 bg-red-100 text-red-600 rounded-xl mb-6 shadow-inner">
+            <div className="bg-blue-50/50 rounded-3xl p-10 border border-blue-100 shadow-sm h-full flex flex-col">
+              <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 text-blue-600 rounded-xl mb-6 shadow-inner">
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>
               <h3 className="text-3xl font-bold text-gray-900 mb-6 tracking-tight">The Problem</h3>
               <p className="text-gray-700 font-medium mb-6">Hazardous workplaces like mines and industrial sites remain dangerous because risks are detected too late.</p>
-              <ul className="space-y-4">
+              <ul className="space-y-4 mb-auto">
                 {[
                   "Toxic gases are invisible.",
                   "Environmental conditions change rapidly.",
@@ -78,20 +78,20 @@ function LandingPage() {
                   "Most safety setups react only after thresholds are crossed."
                 ].map((item, idx) => (
                   <li key={idx} className="flex items-start text-gray-600">
-                    <span className="text-red-500 mr-3 font-bold">•</span>
+                    <span className="text-blue-500 mr-3 font-bold">•</span>
                     <span>{item}</span>
                   </li>
                 ))}
               </ul>
-              <div className="mt-8 pt-6 border-t border-red-200">
-                <p className="text-red-800 font-bold italic leading-relaxed">
+              <div className="mt-8 pt-6 border-t border-blue-200">
+                <p className="text-blue-800 font-bold italic leading-relaxed">
                   "What this really means is delayed alerts, slower response, and avoidable accidents."
                 </p>
               </div>
             </div>
 
             {/* The Solution */}
-            <div className="bg-blue-600 rounded-3xl p-10 text-white shadow-2xl relative overflow-hidden">
+            <div className="bg-blue-600 rounded-3xl p-10 text-white shadow-2xl relative overflow-hidden h-full flex flex-col">
               <div className="absolute top-0 right-0 p-8 opacity-10">
                 <svg className="w-32 h-32" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M2.166 4.9L10 .3l7.834 4.6a1 1 0 01.5.866v7.351a1 1 0 01-.5.866l-7.834 4.602a1 1 0 01-1 0L2.166 14.167a1 1 0 01-.5-.866V5.766a1 1 0 01.5-.866z" />
@@ -106,12 +106,14 @@ function LandingPage() {
               <p className="text-blue-100 text-lg leading-relaxed mb-6 font-medium">
                 This system moves safety from fixed infrastructure to the worker.
               </p>
-              <p className="text-blue-50 leading-relaxed mb-6">
-                Each helmet continuously senses environmental conditions, analyzes risk trends locally, and alerts both the wearer and supervisors in real time.
-              </p>
-              <p className="text-blue-50 leading-relaxed font-bold">
-                Instead of waiting for danger to cross a hard limit, the system anticipates unsafe patterns and acts early. Even without active connectivity, emergency alerts still work.
-              </p>
+              <div className="space-y-6">
+                <p className="text-blue-50 leading-relaxed">
+                  Each helmet continuously senses environmental conditions, analyzes risk trends locally, and alerts both the wearer and supervisors in real time.
+                </p>
+                <p className="text-blue-50 leading-relaxed font-bold">
+                  Instead of waiting for danger to cross a hard limit, the system anticipates unsafe patterns and acts early. Even without active connectivity, emergency alerts still work.
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -140,6 +142,11 @@ function LandingPage() {
                   title: "Offline SOS Signaling",
                   desc: "Emergency distress alerts that function without relying on network availability.",
                   icon: "M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"
+                },
+                {
+                  title: "Attendance Tracking",
+                  desc: "Automated logging of miner entry, exit, and total active shift hours for operational efficiency.",
+                  icon: "M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
                 },
                 {
                   title: "Automatic Visibility Control",
@@ -207,25 +214,34 @@ function LandingPage() {
         <section className="py-24 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
             {/* Who It's For */}
-            <div>
-              <h2 className="text-3xl font-extrabold text-gray-900 mb-8 border-l-4 border-blue-600 pl-4">Who It’s For</h2>
-              <div className="grid grid-cols-1 gap-4">
+            <div className="bg-blue-50/50 rounded-3xl p-10 border border-blue-100 shadow-xl h-full flex flex-col">
+              <h2 className="text-3xl font-extrabold text-gray-900 mb-8">Who It’s For</h2>
+              <div className="space-y-4 mb-auto">
                 {[
                   "Underground mining operations",
                   "Industrial safety and compliance teams",
                   "Supervisors and control rooms",
                   "Research, pilot, and safety innovation programs"
                 ].map((item, idx) => (
-                  <div key={idx} className="bg-white p-4 rounded-xl border border-gray-100 flex items-center space-x-3 shadow-sm hover:translate-x-2 transition-transform">
-                    <div className="w-8 h-8 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-sm">{idx + 1}</div>
-                    <p className="text-gray-700 font-medium">{item}</p>
+                  <div key={idx} className="bg-white/80 backdrop-blur-sm p-4 rounded-xl border border-white flex items-center space-x-4 shadow-sm">
+                    <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center shadow-sm">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                    </div>
+                    <p className="text-gray-800 font-bold">{item}</p>
                   </div>
                 ))}
+              </div>
+              <div className="mt-8 pt-6 border-t border-blue-200/50 text-center">
+                <p className="text-sm font-black text-blue-600 uppercase tracking-widest">
+                  Enterprise-Ready Safety
+                </p>
               </div>
             </div>
 
             {/* What Makes It Different */}
-            <div className="bg-gradient-to-br from-gray-900 to-blue-900 rounded-3xl p-10 text-white shadow-xl">
+            <div className="bg-blue-950 rounded-3xl p-10 text-white shadow-xl">
               <h2 className="text-3xl font-extrabold mb-8">What Makes It Different</h2>
               <div className="space-y-6">
                 {[
@@ -236,7 +252,7 @@ function LandingPage() {
                 ].map((item, idx) => (
                   <div key={idx} className="flex gap-4">
                     <svg className="w-6 h-6 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
                     <div>
                       <p className="font-bold text-blue-400 mb-1">{item.title}</p>

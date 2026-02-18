@@ -81,7 +81,7 @@ const TermsConditions = () => (
             <p>These Terms may be updated periodically to reflect system changes or operational requirements. Continued use of the system after updates constitutes acceptance of the revised Terms.</p>
         </section>
 
-        <section className="bg-gray-950 text-white p-8 rounded-2xl text-center">
+        <section className="bg-blue-950 text-white p-8 rounded-2xl text-center">
             <h3 className="text-xl font-bold mb-4 mt-0 uppercase tracking-wider text-sm">Contact</h3>
             <p className="text-gray-300">For questions or concerns related to these Terms and Conditions, please contact the project administrators using the contact information provided on this website.</p>
         </section>

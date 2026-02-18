@@ -67,7 +67,7 @@ const LegalDisclosure = () => (
             <p>This legal disclosure may be updated or modified at any time without prior notice to reflect changes in functionality, scope, or regulatory considerations. Continued use of the application after updates constitutes acceptance of the revised disclosure.</p>
         </section>
 
-        <section className="bg-gray-950 text-white p-8 rounded-2xl text-center">
+        <section className="bg-blue-950 text-white p-8 rounded-2xl text-center">
             <h3 className="text-xl font-bold mb-4 mt-0">Contact</h3>
             <p className="text-gray-300">For questions related to legal, compliance, or usage concerns, please contact the project administrators through the official communication channels provided on this website.</p>
         </section>

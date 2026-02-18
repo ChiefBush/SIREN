@@ -10,7 +10,7 @@ import FallDetectionChart from './FallDetectionChart'
  * 2. DHT11 (Temperature + Humidity)
  * 3. Fall Detection (Accelerometer + Gyroscope)
  */
-function DashboardCharts({ userId = null, userEmail = null }) {
+function DashboardCharts({ userId = null, userEmail = null, stacked = false }) {
     const { sensorHistory, loading } = useSensorData(userId, userEmail)
 
     if (loading) {
@@ -30,20 +30,23 @@ function DashboardCharts({ userId = null, userEmail = null }) {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">Sensor Telemetry History</h3>
+                <div className="flex items-center space-x-2">
+                    <div className="h-6 w-1 bg-blue-600 rounded-full"></div>
+                    <h3 className="text-xl font-bold text-gray-900">Sensor Data Graphs</h3>
+                </div>
                 <div className="flex items-center space-x-2">
                     <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">High Resolution Mode</span>
                 </div>
             </div>
 
-            {/* Charts Grid - Vertically stacked for better legibility when embedded */}
-            <div className="grid grid-cols-1 gap-8">
+            {/* Charts Grid */}
+            <div className={`grid ${stacked ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'} gap-6`}>
                 {/* Chart 1: Combined MQ Sensors */}
                 <div className="w-full">
                     <CombinedMQChart
                         data={chartData}
-                        height={400}
+                        height={stacked ? 400 : 300}
                         isDashboard={true}
                     />
                 </div>
@@ -52,7 +55,7 @@ function DashboardCharts({ userId = null, userEmail = null }) {
                 <div className="w-full">
                     <DHT11Chart
                         data={chartData}
-                        height={400}
+                        height={stacked ? 400 : 300}
                         isDashboard={true}
                     />
                 </div>
@@ -61,7 +64,7 @@ function DashboardCharts({ userId = null, userEmail = null }) {
                 <div className="w-full">
                     <FallDetectionChart
                         data={chartData}
-                        height={400}
+                        height={stacked ? 400 : 300}
                         isDashboard={true}
                     />
                 </div>

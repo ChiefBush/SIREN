@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import FooterPageLayout from '../components/FooterPageLayout';
 import d1 from '../images/d1.png';
 import d2 from '../images/d2.png';
@@ -9,6 +9,55 @@ import m2 from '../images/m2.png';
 import m3 from '../images/m3.png';
 
 const AboutUs = () => {
+    const [formData, setFormData] = useState({
+        from_name: '',
+        reply_to: '',
+        message: ''
+    });
+    const [submitStatus, setSubmitStatus] = useState('idle'); // idle, sending, success, error
+
+    const handleFormChange = (e) => {
+        setFormData({
+            ...formData,
+            [e.target.name]: e.target.value
+        });
+    };
+
+    const handleContactSubmit = async (e) => {
+        e.preventDefault();
+        setSubmitStatus('sending');
+
+        const { from_name, reply_to, message } = formData;
+
+        try {
+            // Using FormSubmit.co - A zero-key SMTP proxy
+            // No API keys required. First submission needs confirmation in the target inbox.
+            const response = await fetch("https://formsubmit.co/ajax/caneriesiren@gmail.com", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                },
+                body: JSON.stringify({
+                    name: from_name,
+                    email: reply_to,
+                    message: message,
+                    _subject: `SIREN Contact: ${from_name}`,
+                    _template: "table" // Makes the email look professional
+                })
+            });
+
+            if (response.ok) {
+                setSubmitStatus('success');
+                setFormData({ from_name: '', reply_to: '', message: '' });
+            } else {
+                setSubmitStatus('error');
+            }
+        } catch (error) {
+            console.error('[SMTP] Submission error:', error);
+            setSubmitStatus('error');
+        }
+    };
     const TeamMember = ({ name, role, image }) => (
         <div className="flex flex-col items-center p-4 bg-white rounded-2xl shadow-sm border border-gray-50 hover:shadow-md transition-shadow group">
             <div className="w-32 h-32 rounded-3xl mb-4 overflow-hidden border-2 border-transparent group-hover:border-blue-200 transition-all">
@@ -131,7 +180,7 @@ const AboutUs = () => {
                 </section>
 
                 {/* Contact Section */}
-                <section className="bg-gray-950 text-white p-10 rounded-[32px] shadow-2xl overflow-hidden relative">
+                <section className="bg-blue-950 text-white p-10 rounded-[32px] shadow-2xl overflow-hidden relative">
                     <div className="absolute top-0 right-0 p-20 bg-blue-600/10 blur-[100px] rounded-full"></div>
 
                     <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-12">
@@ -139,32 +188,102 @@ const AboutUs = () => {
                             <h2 className="text-4xl font-black mb-8">Contact Us</h2>
                             <div className="space-y-6">
                                 <div>
-                                    <p className="text-blue-400 uppercase tracking-widest text-xs font-black mb-2">Email</p>
-                                    <p className="text-xl">contact@siren-safety.com</p>
+                                    <p className="text-blue-400 uppercase tracking-widest text-xs font-black mb-2">Technical Support</p>
+                                    <p className="text-xl">caneriesiren@gmail.com</p>
                                 </div>
                                 <div>
-                                    <p className="text-blue-400 uppercase tracking-widest text-xs font-black mb-2">Phone</p>
-                                    <p className="text-xl">+1 (555) 987-6543</p>
+                                    <p className="text-blue-400 uppercase tracking-widest text-xs font-black mb-2">Connect with the Project Team</p>
+                                    <div className="flex flex-col space-y-1">
+                                        <p className="text-base font-normal text-gray-200">+91 98169 91264</p>
+                                        <p className="text-base font-normal text-gray-200">+91 70420 19826</p>
+                                        <p className="text-base font-normal text-gray-200">+91 99710 18349</p>
+                                        <p className="text-base font-normal text-gray-200">+91 80760 82039</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <div>
-                            <p className="text-lg text-gray-400 mb-6">Send a message to the developers:</p>
-                            <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-                                <input
-                                    type="text"
-                                    placeholder="Your Name"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
-                                />
-                                <textarea
-                                    placeholder="Your Message"
-                                    rows="4"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
-                                ></textarea>
-                                <button className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all active:scale-[0.98]">
-                                    Send Message
-                                </button>
+                            <p className="text-lg text-gray-400 mb-6">Send a message to the development team:</p>
+                            <form className="space-y-4" onSubmit={handleContactSubmit}>
+                                {submitStatus === 'success' ? (
+                                    <div className="bg-green-500/20 border border-green-500/50 p-6 rounded-2xl text-center">
+                                        <div className="w-12 h-12 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                            </svg>
+                                        </div>
+                                        <h4 className="text-xl font-bold mb-2">Message Sent!</h4>
+                                        <p className="text-sm text-gray-300">Thank you for reaching out. We will get back to you soon.</p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setSubmitStatus('idle')}
+                                            className="mt-4 text-sm text-blue-400 font-bold hover:underline"
+                                        >
+                                            Send another message
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <input
+                                                type="text"
+                                                name="from_name"
+                                                required
+                                                placeholder="Your Name"
+                                                value={formData.from_name}
+                                                onChange={handleFormChange}
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                                            />
+                                            <input
+                                                type="email"
+                                                name="reply_to"
+                                                required
+                                                placeholder="Your Email"
+                                                value={formData.reply_to}
+                                                onChange={handleFormChange}
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all"
+                                            />
+                                        </div>
+                                        <textarea
+                                            name="message"
+                                            required
+                                            placeholder="How can we help you?"
+                                            rows="4"
+                                            value={formData.message}
+                                            onChange={handleFormChange}
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-600 transition-all resize-none"
+                                        ></textarea>
+
+                                        {submitStatus === 'error' && (
+                                            <div className="bg-red-500/10 border border-red-500/20 p-3 rounded-lg">
+                                                <p className="text-red-400 text-xs font-bold uppercase tracking-widest mb-1">Configuration Required</p>
+                                                <p className="text-red-300 text-[10px] leading-tight opacity-80">
+                                                    You need to replace the placeholders in your <b>.env</b> file with actual keys from your EmailJS dashboard,
+                                                    then restart the application to enable SMTP sending.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        <button
+                                            type="submit"
+                                            disabled={submitStatus === 'sending'}
+                                            className={`w-full bg-blue-600 hover:bg-blue-700 text-white font-black py-4 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-blue-600/20 uppercase tracking-widest text-sm flex items-center justify-center space-x-2 ${submitStatus === 'sending' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                                        >
+                                            {submitStatus === 'sending' ? (
+                                                <>
+                                                    <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span>Sending...</span>
+                                                </>
+                                            ) : (
+                                                <span>Send Message</span>
+                                            )}
+                                        </button>
+                                    </>
+                                )}
                             </form>
                         </div>
                     </div>
