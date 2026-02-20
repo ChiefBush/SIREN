@@ -366,13 +366,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                   </div>
                 </div>
 
-                <div className="mt-6 flex items-center justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                  <div className="flex items-center space-x-2">
-                    <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                    <span>Live Telemetry Streams</span>
-                  </div>
-                  <span>Last Sync: {currentTime.toLocaleTimeString()}</span>
-                </div>
+
               </div>
             </div>
 

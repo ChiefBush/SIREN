@@ -13,7 +13,6 @@ function LandingPage() {
               <Logo className="h-12 w-auto transition-transform group-hover:scale-105" />
               <div className="hidden sm:block border-l border-blue-900/50 pl-4">
                 <p className="text-xl font-black text-white">SIREN</p>
-                <p className="text-[10px] text-blue-300 uppercase tracking-[0.2em] font-bold">Safety First</p>
               </div>
             </div>
             <div className="flex items-center space-x-6">
@@ -193,7 +192,7 @@ function LandingPage() {
                     { step: "01", title: "Data Capture", desc: "Sensors mounted on the helmet capture environmental data continuously" },
                     { step: "02", title: "Edge Processing", desc: "Data is processed and buffered locally on the device for minimal latency" },
                     { step: "03", title: "Immediate Response", desc: "Immediate alerts trigger if unsafe conditions are detected" },
-                    { step: "04", title: "Cloud Synchronization", desc: "Encrypted data syncs to the cloud when connectivity is available" },
+                    { step: "04", title: "Leave Management System", desc: "Encrypted data syncs to the cloud when connectivity is available" },
                     { step: "05", title: "Supervisory Insight", desc: "Supervisors monitor conditions through a centralized dashboard" }
                   ].map((item, idx) => (
                     <div key={idx} className="flex gap-8 group">
