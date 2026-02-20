@@ -25,6 +25,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [emergencyActive, setEmergencyActive] = useState(false)
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
   const lastEmergencyIncidentRef = useRef(null) // tracks last incident created to prevent duplicates
+  const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
 
   // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
@@ -212,10 +213,14 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           console.log('[SIREN] Emergency poll row (Timestamp order):', data2)
           const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
           if (isEmergency) {
-            setEmergencyActive(true)
-            setEmergencyAcknowledged(false)
-            showEmergencyNotification()
-            createEmergencyIncident(data2)
+            const rowId = String(data2?.id || data2?.created_at || '')
+            if (rowId !== lastAlertedEmergencyIdRef.current) {
+              lastAlertedEmergencyIdRef.current = rowId
+              setEmergencyActive(true)
+              setEmergencyAcknowledged(false)
+              showEmergencyNotification()
+              createEmergencyIncident(data2)
+            }
           }
           return
         }
@@ -223,10 +228,15 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         console.log('[SIREN] Emergency poll row:', data)
         const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
         if (isEmergency) {
-          setEmergencyActive(true)
-          setEmergencyAcknowledged(false)
-          showEmergencyNotification()
-          createEmergencyIncident(data)
+          // Only alert if this is a NEW emergency row (different id from the last one we showed)
+          const rowId = String(data?.id || data?.created_at || '')
+          if (rowId !== lastAlertedEmergencyIdRef.current) {
+            lastAlertedEmergencyIdRef.current = rowId
+            setEmergencyActive(true)
+            setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(data)
+          }
         }
       } catch (e) {
         console.error('[SIREN] Emergency poll exception:', e)
@@ -247,10 +257,14 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       }, (payload) => {
         console.log('[SIREN] Realtime emergency event received:', payload.new)
         if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
-          setEmergencyActive(true)
-          setEmergencyAcknowledged(false)
-          showEmergencyNotification()
-          createEmergencyIncident(payload.new)
+          const rowId = String(payload.new?.id || payload.new?.created_at || '')
+          if (rowId !== lastAlertedEmergencyIdRef.current) {
+            lastAlertedEmergencyIdRef.current = rowId
+            setEmergencyActive(true)
+            setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(payload.new)
+          }
         }
       })
       .subscribe((status) => {

@@ -28,6 +28,7 @@ function AdminDashboard({ onLogout }) {
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
   const [emergencyNotifications, setEmergencyNotifications] = useState([])
   const lastEmergencyIncidentRef = useRef(null)
+  const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
 
   const menuRef = useRef(null)
 
@@ -100,10 +101,14 @@ function AdminDashboard({ onLogout }) {
           console.log('[SIREN] Admin: Emergency poll row:', data2)
           const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
           if (isEmergency) {
-            setEmergencyActive(true)
-            setEmergencyAcknowledged(false)
-            showEmergencyNotification()
-            createEmergencyIncident(data2)
+            const rowId = String(data2?.id || data2?.created_at || '')
+            if (rowId !== lastAlertedEmergencyIdRef.current) {
+              lastAlertedEmergencyIdRef.current = rowId
+              setEmergencyActive(true)
+              setEmergencyAcknowledged(false)
+              showEmergencyNotification()
+              createEmergencyIncident(data2)
+            }
           }
           return
         }
@@ -111,10 +116,14 @@ function AdminDashboard({ onLogout }) {
         console.log('[SIREN] Admin: Emergency poll row:', data)
         const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
         if (isEmergency) {
-          setEmergencyActive(true)
-          setEmergencyAcknowledged(false)
-          showEmergencyNotification()
-          createEmergencyIncident(data)
+          const rowId = String(data?.id || data?.created_at || '')
+          if (rowId !== lastAlertedEmergencyIdRef.current) {
+            lastAlertedEmergencyIdRef.current = rowId
+            setEmergencyActive(true)
+            setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(data)
+          }
         }
       } catch (e) {
         console.error('[SIREN] Admin: Emergency poll exception:', e)
@@ -134,10 +143,14 @@ function AdminDashboard({ onLogout }) {
       }, (payload) => {
         console.log('[SIREN] Admin: Realtime emergency event:', payload.new)
         if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
-          setEmergencyActive(true)
-          setEmergencyAcknowledged(false)
-          showEmergencyNotification()
-          createEmergencyIncident(payload.new)
+          const rowId = String(payload.new?.id || payload.new?.created_at || '')
+          if (rowId !== lastAlertedEmergencyIdRef.current) {
+            lastAlertedEmergencyIdRef.current = rowId
+            setEmergencyActive(true)
+            setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(payload.new)
+          }
         }
       })
       .subscribe((status) => {
