@@ -1,0 +1,39 @@
+Loading dataset from synthetic_sensor_data.csv...
+Training set shape: (8000, 7)
+Testing set shape: (2000, 7)
+
+Training Random Forest Classifier on 'air_quality'...
+
+Evaluating model on test set...
+
+Accuracy: 0.9470
+
+Classification Report:
+              precision    recall  f1-score   support
+
+        Good       0.95      0.98      0.96      1340
+   Hazardous       1.00      1.00      1.00        96
+    Moderate       0.92      0.85      0.88       468
+        Poor       0.98      0.97      0.97        96
+
+    accuracy                           0.95      2000
+   macro avg       0.96      0.95      0.95      2000
+weighted avg       0.95      0.95      0.95      2000
+
+Confusion Matrix:
+[[1309    0   31    0]
+ [   0   96    0    0]
+ [  70    0  396    2]
+ [   0    0    3   93]]
+
+Feature Importances:
+mq135_analog    0.601395
+mq2_analog      0.180133
+temperature     0.081774
+mq9_analog      0.067763
+humidity        0.028195
+snr             0.022020
+rssi            0.018721
+dtype: float64
+
+Model successfully saved to 'rf_model.pkl'
