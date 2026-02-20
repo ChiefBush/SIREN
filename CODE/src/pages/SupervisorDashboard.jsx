@@ -57,29 +57,32 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   // Auto-create a critical incident in the incidents table when an emergency is detected
   const createEmergencyIncident = async (sensorRow) => {
     try {
-      const rawTs = sensorRow?.created_at || sensorRow?.timestamp || new Date().toISOString()
-      // Deduplicate: skip if we already created an incident for this exact timestamp
-      if (lastEmergencyIncidentRef.current === rawTs) return
-      lastEmergencyIncidentRef.current = rawTs
+      // Use the row's id or timestamp as deduplication key
+      const dedupeKey = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || Date.now())
+      if (lastEmergencyIncidentRef.current === dedupeKey) return
+      lastEmergencyIncidentRef.current = dedupeKey
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const reportedBy = authUser?.id || null
 
+      // Use 'other' if sos_emergency is not a valid enum in your DB, or change as appropriate
       const { error } = await supabase.from('incidents').insert({
-        incident_type: 'sos_emergency',
+        incident_type: 'other',
         severity: 'critical',
         status: 'reported',
         location: 'Helmet Sensor Node',
-        description: 'Automatic alert: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data. Immediate response required.',
+        description: '🚨 AUTOMATIC EMERGENCY ALERT: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data at ' + new Date().toLocaleString() + '. Immediate response required.',
         date: new Date().toISOString().split('T')[0],
         reported_by: reportedBy
       })
 
       if (error) {
-        console.error('Failed to auto-create emergency incident:', error)
+        console.error('[SIREN] Failed to auto-create emergency incident:', error)
+      } else {
+        console.log('[SIREN] Emergency incident created successfully')
       }
     } catch (err) {
-      console.error('Error in createEmergencyIncident:', err)
+      console.error('[SIREN] Error in createEmergencyIncident:', err)
     }
   }
 
@@ -181,35 +184,60 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       })
       .subscribe()
 
-    // Check for any recent emergency on mount (catches emergencies that fired before the page loaded)
-    const checkExistingEmergency = async () => {
+    // --- Emergency polling (runs every 15s, more reliable than realtime alone) ---
+    // Fetches the single most recent sensor_data row and checks if emergency is truthy.
+    const pollEmergency = async () => {
       try {
         const { data, error } = await sensorSupabase
           .from('sensor_data')
-          .select('emergency, created_at, timestamp')
-          .eq('emergency', true)
+          .select('*')
           .order('created_at', { ascending: false })
           .limit(1)
           .single()
 
-        if (!error && data) {
-          const rawTs = data.created_at || data.timestamp
-          const ts = new Date(rawTs)
-          const minutesAgo = (Date.now() - ts.getTime()) / 60000
-          if (minutesAgo <= 5) {
+        if (error) {
+          // Fallback: try ordering by 'Timestamp' in case created_at doesn't exist
+          const { data: data2, error: error2 } = await sensorSupabase
+            .from('sensor_data')
+            .select('*')
+            .order('Timestamp', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (error2) {
+            console.error('[SIREN] Emergency poll failed (both orderings):', error, error2)
+            return
+          }
+
+          console.log('[SIREN] Emergency poll row (Timestamp order):', data2)
+          const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
+          if (isEmergency) {
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
             showEmergencyNotification()
-            createEmergencyIncident(data)
+            createEmergencyIncident(data2)
           }
+          return
+        }
+
+        console.log('[SIREN] Emergency poll row:', data)
+        const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
+        if (isEmergency) {
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false)
+          showEmergencyNotification()
+          createEmergencyIncident(data)
         }
       } catch (e) {
-        // No emergency found or query failed — that's fine
+        console.error('[SIREN] Emergency poll exception:', e)
       }
     }
-    checkExistingEmergency()
 
-    // Direct emergency subscription — fires for ALL emergency inserts regardless of email
+    // Run immediately on mount, then every 15 seconds
+    pollEmergency()
+    const emergencyPollInterval = setInterval(pollEmergency, 15000)
+
+    // Also keep realtime as a bonus (fires immediately if Supabase Realtime is enabled)
     const emergencyChannel = sensorSupabase
       .channel('supervisor-emergency-alerts')
       .on('postgres_changes', {
@@ -217,21 +245,24 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         schema: 'public',
         table: 'sensor_data'
       }, (payload) => {
-        // Coerce to boolean to handle both true and "true" from the DB
-        if (payload.new?.emergency === true || payload.new?.emergency === 'true') {
+        console.log('[SIREN] Realtime emergency event received:', payload.new)
+        if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
           setEmergencyActive(true)
           setEmergencyAcknowledged(false)
           showEmergencyNotification()
           createEmergencyIncident(payload.new)
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        console.log('[SIREN] Emergency channel status:', status)
+      })
 
     fetchPendingLeave()
 
     return () => {
       clearInterval(timer)
       clearInterval(statusInterval)
+      clearInterval(emergencyPollInterval)
       supabase.removeChannel(attendanceChannel)
       supabase.removeChannel(leaveChannel)
       supabase.removeChannel(notificationChannel)
@@ -494,8 +525,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                   removeNotification(notification.id)
                 }}
                 className={`text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer ${notification.type === 'emergency'
-                    ? 'bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-400'
-                    : 'bg-blue-600 hover:bg-blue-700'
+                  ? 'bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-400'
+                  : 'bg-blue-600 hover:bg-blue-700'
                   }`}
               >
                 <div className="flex-shrink-0">

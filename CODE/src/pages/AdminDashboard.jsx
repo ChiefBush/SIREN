@@ -34,23 +34,27 @@ function AdminDashboard({ onLogout }) {
   // Auto-create a critical incident when emergency=true is detected
   const createEmergencyIncident = async (sensorRow) => {
     try {
-      const rawTs = sensorRow?.created_at || sensorRow?.timestamp || new Date().toISOString()
-      if (lastEmergencyIncidentRef.current === rawTs) return
-      lastEmergencyIncidentRef.current = rawTs
+      const dedupeKey = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || Date.now())
+      if (lastEmergencyIncidentRef.current === dedupeKey) return
+      lastEmergencyIncidentRef.current = dedupeKey
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const { error } = await supabase.from('incidents').insert({
-        incident_type: 'sos_emergency',
+        incident_type: 'other',
         severity: 'critical',
         status: 'reported',
         location: 'Helmet Sensor Node',
-        description: 'Automatic alert: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data. Immediate response required.',
+        description: '🚨 AUTOMATIC EMERGENCY ALERT: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data at ' + new Date().toLocaleString() + '. Immediate response required.',
         date: new Date().toISOString().split('T')[0],
         reported_by: authUser?.id || null
       })
-      if (error) console.error('Failed to auto-create emergency incident:', error)
+      if (error) {
+        console.error('[SIREN] Admin: Failed to auto-create emergency incident:', error)
+      } else {
+        console.log('[SIREN] Admin: Emergency incident created successfully')
+      }
     } catch (err) {
-      console.error('Error in createEmergencyIncident:', err)
+      console.error('[SIREN] Admin: Error in createEmergencyIncident:', err)
     }
   }
 
@@ -70,35 +74,57 @@ function AdminDashboard({ onLogout }) {
     fetchAllUsers()
     fetchActivityLogs()
 
-    // Check for any recent emergency on mount (catches emergencies that fired before the page loaded)
-    const checkExistingEmergency = async () => {
+    // --- Emergency polling (runs every 15s — reliable even without Supabase Realtime) ---
+    const pollEmergency = async () => {
       try {
         const { data, error } = await sensorSupabase
           .from('sensor_data')
-          .select('emergency, created_at, timestamp')
-          .eq('emergency', true)
+          .select('*')
           .order('created_at', { ascending: false })
           .limit(1)
           .single()
 
-        if (!error && data) {
-          const rawTs = data.created_at || data.timestamp
-          const ts = new Date(rawTs)
-          const minutesAgo = (Date.now() - ts.getTime()) / 60000
-          if (minutesAgo <= 5) {
+        if (error) {
+          // Fallback: try Timestamp (capital T)
+          const { data: data2, error: error2 } = await sensorSupabase
+            .from('sensor_data')
+            .select('*')
+            .order('Timestamp', { ascending: false })
+            .limit(1)
+            .single()
+
+          if (error2) {
+            console.error('[SIREN] Admin: Emergency poll failed:', error, error2)
+            return
+          }
+          console.log('[SIREN] Admin: Emergency poll row:', data2)
+          const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
+          if (isEmergency) {
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
             showEmergencyNotification()
-            createEmergencyIncident(data)
+            createEmergencyIncident(data2)
           }
+          return
+        }
+
+        console.log('[SIREN] Admin: Emergency poll row:', data)
+        const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
+        if (isEmergency) {
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false)
+          showEmergencyNotification()
+          createEmergencyIncident(data)
         }
       } catch (e) {
-        // No emergency found or query failed — that's fine
+        console.error('[SIREN] Admin: Emergency poll exception:', e)
       }
     }
-    checkExistingEmergency()
 
-    // Subscribe to sensor_data for emergency events
+    pollEmergency()
+    const emergencyPollInterval = setInterval(pollEmergency, 15000)
+
+    // Realtime as bonus
     const emergencyChannel = sensorSupabase
       .channel('admin-emergency-alerts')
       .on('postgres_changes', {
@@ -106,15 +132,17 @@ function AdminDashboard({ onLogout }) {
         schema: 'public',
         table: 'sensor_data'
       }, (payload) => {
-        // Coerce to boolean to handle both true and "true" from the DB
-        if (payload.new?.emergency === true || payload.new?.emergency === 'true') {
+        console.log('[SIREN] Admin: Realtime emergency event:', payload.new)
+        if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
           setEmergencyActive(true)
-          setEmergencyAcknowledged(false) // Re-trigger popup for each new emergency
+          setEmergencyAcknowledged(false)
           showEmergencyNotification()
           createEmergencyIncident(payload.new)
         }
       })
-      .subscribe()
+      .subscribe((status) => {
+        console.log('[SIREN] Admin: Emergency channel status:', status)
+      })
 
     // Click outside listener to close menus
     const handleClickOutside = (event) => {
@@ -125,6 +153,7 @@ function AdminDashboard({ onLogout }) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => {
       document.removeEventListener('mousedown', handleClickOutside)
+      clearInterval(emergencyPollInterval)
       sensorSupabase.removeChannel(emergencyChannel)
     }
   }, [])
