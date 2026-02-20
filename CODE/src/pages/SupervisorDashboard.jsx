@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, sensorSupabase } from '../lib/supabase'
 import MinerLogs from './MinerLogs'
 import DashboardCharts from '../components/DashboardCharts'
 import SupervisorLeaveManagement from './SupervisorLeaveManagement'
@@ -22,17 +22,11 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [activeStatuses, setActiveStatuses] = useState({})
   const [notifications, setNotifications] = useState([])
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [emergencyActive, setEmergencyActive] = useState(false)
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
 
-  // Get sensor data for dashboard
+  // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
-
-  // Reset acknowledgement whenever a NEW emergency event fires
-  useEffect(() => {
-    if (sensorData.emergency) {
-      setEmergencyAcknowledged(false)
-    }
-  }, [sensorData.emergency])
 
   const showNotification = (data) => {
     const notificationId = data.application_id ? `leave-${data.application_id}` : Date.now() + Math.random()
@@ -137,6 +131,21 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       })
       .subscribe()
 
+    // Direct emergency subscription — fires for ALL emergency inserts regardless of email
+    const emergencyChannel = sensorSupabase
+      .channel('supervisor-emergency-alerts')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'sensor_data'
+      }, (payload) => {
+        if (payload.new?.emergency === true) {
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false)
+        }
+      })
+      .subscribe()
+
     fetchPendingLeave()
 
     return () => {
@@ -145,6 +154,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       supabase.removeChannel(attendanceChannel)
       supabase.removeChannel(leaveChannel)
       supabase.removeChannel(notificationChannel)
+      sensorSupabase.removeChannel(emergencyChannel)
     }
   }, [userId])
 
@@ -434,8 +444,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           {activePage === 'dashboard' && (
             <div className="space-y-6">
-              {/* Global Emergency Alert Banner */}
-              {sensorData.emergency && (
+              {/* Global Emergency Alert Banner — stays visible after popup dismissed */}
+              {emergencyActive && (
                 <div className="bg-red-600 text-white p-4 rounded-lg shadow-lg flex items-center justify-between animate-pulse">
                   <div className="flex items-center space-x-3">
                     <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -610,7 +620,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
       {/* Emergency SOS Popup Alert */}
       <EmergencyAlertModal
-        isOpen={sensorData.emergency && !emergencyAcknowledged}
+        isOpen={emergencyActive && !emergencyAcknowledged}
         onDismiss={() => setEmergencyAcknowledged(true)}
       />
     </div>
