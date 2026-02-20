@@ -207,7 +207,9 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
                                             {new Date(incident.date).toLocaleDateString()}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
-                                            {incident.incident_type.replace('_', ' ')}
+                                            {incident.incident_type === 'sos_emergency'
+                                                ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">🚨 SOS Emergency</span>
+                                                : incident.incident_type.replace(/_/g, ' ')}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${getSeverityColor(incident.severity)}`}>
@@ -281,6 +283,7 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
                                     onChange={(e) => setFormData({ ...formData, incident_type: e.target.value })}
                                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-red-500 focus:border-red-500"
                                 >
+                                    <option value="sos_emergency">🚨 SOS Emergency (Auto)</option>
                                     <option value="hazard">Hazard</option>
                                     <option value="accident">Accident</option>
                                     <option value="near_miss">Near Miss</option>

@@ -26,8 +26,43 @@ function AdminDashboard({ onLogout }) {
   // Emergency SOS state
   const [emergencyActive, setEmergencyActive] = useState(false)
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
+  const [emergencyNotifications, setEmergencyNotifications] = useState([])
+  const lastEmergencyIncidentRef = useRef(null)
 
   const menuRef = useRef(null)
+
+  // Auto-create a critical incident when emergency=true is detected
+  const createEmergencyIncident = async (sensorRow) => {
+    try {
+      const rawTs = sensorRow?.created_at || sensorRow?.timestamp || new Date().toISOString()
+      if (lastEmergencyIncidentRef.current === rawTs) return
+      lastEmergencyIncidentRef.current = rawTs
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const { error } = await supabase.from('incidents').insert({
+        incident_type: 'sos_emergency',
+        severity: 'critical',
+        status: 'reported',
+        location: 'Helmet Sensor Node',
+        description: 'Automatic alert: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data. Immediate response required.',
+        date: new Date().toISOString().split('T')[0],
+        reported_by: authUser?.id || null
+      })
+      if (error) console.error('Failed to auto-create emergency incident:', error)
+    } catch (err) {
+      console.error('Error in createEmergencyIncident:', err)
+    }
+  }
+
+  // Show a red SOS toast notification
+  const showEmergencyNotification = () => {
+    const notifId = `emergency-${Date.now()}`
+    setEmergencyNotifications(prev => {
+      if (prev.length > 0) return prev // don't stack
+      setTimeout(() => setEmergencyNotifications(cur => cur.filter(n => n.id !== notifId)), 30000)
+      return [{ id: notifId, message: '🚨 Emergency SOS triggered — helmet button pressed or fall detected!', timestamp: new Date() }]
+    })
+  }
 
   useEffect(() => {
     fetchCurrentUser()
@@ -53,6 +88,8 @@ function AdminDashboard({ onLogout }) {
           if (minutesAgo <= 5) {
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(data)
           }
         }
       } catch (e) {
@@ -73,6 +110,8 @@ function AdminDashboard({ onLogout }) {
         if (payload.new?.emergency === true || payload.new?.emergency === 'true') {
           setEmergencyActive(true)
           setEmergencyAcknowledged(false) // Re-trigger popup for each new emergency
+          showEmergencyNotification()
+          createEmergencyIncident(payload.new)
         }
       })
       .subscribe()
@@ -369,6 +408,41 @@ function AdminDashboard({ onLogout }) {
             </div>
           </div>
         </header>
+
+        {/* Emergency SOS Notifications */}
+        {emergencyNotifications.length > 0 && (
+          <div className="fixed top-20 right-6 z-50 space-y-2 max-w-md">
+            {emergencyNotifications.map((notif) => (
+              <div
+                key={notif.id}
+                onClick={() => {
+                  setActivePage('incidents')
+                  setEmergencyNotifications(prev => prev.filter(n => n.id !== notif.id))
+                }}
+                className="bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 cursor-pointer animate-pulse border-2 border-red-400 transition-all"
+              >
+                <div className="flex-shrink-0 mt-0.5">
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <p className="font-bold">🚨 Emergency SOS Alert</p>
+                  <p className="text-sm opacity-90">{notif.message}</p>
+                  <p className="text-xs opacity-75 mt-1 font-bold">Click to view Incident Reports →</p>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setEmergencyNotifications(prev => prev.filter(n => n.id !== notif.id)) }}
+                  className="flex-shrink-0 text-white hover:text-gray-200"
+                >
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">

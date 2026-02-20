@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { supabase, sensorSupabase } from '../lib/supabase'
 import MinerLogs from './MinerLogs'
@@ -24,6 +24,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false)
   const [emergencyActive, setEmergencyActive] = useState(false)
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
+  const lastEmergencyIncidentRef = useRef(null) // tracks last incident created to prevent duplicates
 
   // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
@@ -48,6 +49,55 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         type: 'leave-application',
         message: `New leave application from ${data.miner_name} (${data.employee_id})`,
         details: data,
+        timestamp: new Date()
+      }, ...prev]
+    })
+  }
+
+  // Auto-create a critical incident in the incidents table when an emergency is detected
+  const createEmergencyIncident = async (sensorRow) => {
+    try {
+      const rawTs = sensorRow?.created_at || sensorRow?.timestamp || new Date().toISOString()
+      // Deduplicate: skip if we already created an incident for this exact timestamp
+      if (lastEmergencyIncidentRef.current === rawTs) return
+      lastEmergencyIncidentRef.current = rawTs
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const reportedBy = authUser?.id || null
+
+      const { error } = await supabase.from('incidents').insert({
+        incident_type: 'sos_emergency',
+        severity: 'critical',
+        status: 'reported',
+        location: 'Helmet Sensor Node',
+        description: 'Automatic alert: Helmet SOS button triggered or fall detected. Emergency signal received from sensor data. Immediate response required.',
+        date: new Date().toISOString().split('T')[0],
+        reported_by: reportedBy
+      })
+
+      if (error) {
+        console.error('Failed to auto-create emergency incident:', error)
+      }
+    } catch (err) {
+      console.error('Error in createEmergencyIncident:', err)
+    }
+  }
+
+  // Show a red SOS toast notification in the dashboard
+  const showEmergencyNotification = () => {
+    const notificationId = `emergency-${Date.now()}`
+    setNotifications(prev => {
+      // Don't stack more than one emergency notification at a time
+      if (prev.some(n => n.type === 'emergency')) return prev
+
+      setTimeout(() => {
+        setNotifications(current => current.filter(n => n.id !== notificationId))
+      }, 30000)
+
+      return [{
+        id: notificationId,
+        type: 'emergency',
+        message: '🚨 Emergency SOS triggered — helmet button pressed or fall detected!',
         timestamp: new Date()
       }, ...prev]
     })
@@ -143,13 +193,14 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           .single()
 
         if (!error && data) {
-          // Only trigger if the emergency happened within the last 5 minutes
           const rawTs = data.created_at || data.timestamp
           const ts = new Date(rawTs)
           const minutesAgo = (Date.now() - ts.getTime()) / 60000
           if (minutesAgo <= 5) {
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
+            showEmergencyNotification()
+            createEmergencyIncident(data)
           }
         }
       } catch (e) {
@@ -170,6 +221,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         if (payload.new?.emergency === true || payload.new?.emergency === 'true') {
           setEmergencyActive(true)
           setEmergencyAcknowledged(false)
+          showEmergencyNotification()
+          createEmergencyIncident(payload.new)
         }
       })
       .subscribe()
@@ -433,23 +486,41 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
               <div
                 key={notification.id}
                 onClick={() => {
-                  setActivePage('leave')
+                  if (notification.type === 'emergency') {
+                    setActivePage('incidents')
+                  } else {
+                    setActivePage('leave')
+                  }
                   removeNotification(notification.id)
                 }}
-                className="bg-blue-600 text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer hover:bg-blue-700"
+                className={`text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer ${notification.type === 'emergency'
+                    ? 'bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-400'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
               >
                 <div className="flex-shrink-0">
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
+                  {notification.type === 'emergency' ? (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                  )}
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold">New Leave Application</p>
+                  <p className="font-semibold">
+                    {notification.type === 'emergency' ? '🚨 Emergency SOS Alert' : 'New Leave Application'}
+                  </p>
                   <p className="text-sm opacity-90">{notification.message}</p>
                   {notification.details && (
                     <p className="text-xs opacity-75 mt-1">
                       {new Date(notification.details.start_date).toLocaleDateString()} - {new Date(notification.details.end_date).toLocaleDateString()}
                     </p>
+                  )}
+                  {notification.type === 'emergency' && (
+                    <p className="text-xs opacity-75 mt-1 font-bold">Click to view Incident Reports →</p>
                   )}
                 </div>
                 <button
