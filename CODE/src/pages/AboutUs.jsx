@@ -90,10 +90,10 @@ const AboutUs = () => {
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
-                        <TeamMember name="Developer 1" role="Lead Systems" image={d1} />
-                        <TeamMember name="Developer 2" role="Frontend Architect" image={d2} />
-                        <TeamMember name="Developer 3" role="Backend Specialist" image={d3} />
-                        <TeamMember name="Developer 4" role="IoT Integration" image={d4} />
+                        <TeamMember name="Arul Gupta" role="Lead Systems" image={d1} />
+                        <TeamMember name="Ishita Dham" role="Frontend Architect" image={d2} />
+                        <TeamMember name="Ishita Dhiman" role="Backend Specialist" image={d3} />
+                        <TeamMember name="Shishir Dwivedi" role="IoT Integration" image={d4} />
                     </div>
 
                     <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">
@@ -126,9 +126,9 @@ const AboutUs = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                        <TeamMember name="Mentor 1" role="Project Supervisor" image={m1} />
-                        <TeamMember name="Mentor 2" role="Technical Guide" image={m2} />
-                        <TeamMember name="Mentor 3" role="Research Director" image={m3} />
+                        <TeamMember name="Dr. Nitasha Hasteer" role="Project Supervisor" image={m1} />
+                        <TeamMember name="Dr. Sanjay Sinha" role="Technical Guide" image={m2} />
+                        <TeamMember name="Dr. Kamlesh Pandey" role="Research Director" image={m3} />
                     </div>
 
                     <div className="bg-blue-950 text-white p-8 rounded-3xl shadow-xl">
@@ -194,10 +194,7 @@ const AboutUs = () => {
                                 <div>
                                     <p className="text-blue-400 uppercase tracking-widest text-xs font-black mb-2">Connect with the Project Team</p>
                                     <div className="flex flex-col space-y-1">
-                                        <p className="text-base font-normal text-gray-200">+91 98169 91264</p>
-                                        <p className="text-base font-normal text-gray-200">+91 70420 19826</p>
-                                        <p className="text-base font-normal text-gray-200">+91 99710 18349</p>
-                                        <p className="text-base font-normal text-gray-200">+91 80760 82039</p>
+                                        <p className="text-base font-normal text-gray-200">+91 99991 00439</p>
                                     </div>
                                 </div>
                             </div>
