@@ -131,6 +131,33 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       })
       .subscribe()
 
+    // Check for any recent emergency on mount (catches emergencies that fired before the page loaded)
+    const checkExistingEmergency = async () => {
+      try {
+        const { data, error } = await sensorSupabase
+          .from('sensor_data')
+          .select('emergency, created_at, timestamp')
+          .eq('emergency', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (!error && data) {
+          // Only trigger if the emergency happened within the last 5 minutes
+          const rawTs = data.created_at || data.timestamp
+          const ts = new Date(rawTs)
+          const minutesAgo = (Date.now() - ts.getTime()) / 60000
+          if (minutesAgo <= 5) {
+            setEmergencyActive(true)
+            setEmergencyAcknowledged(false)
+          }
+        }
+      } catch (e) {
+        // No emergency found or query failed — that's fine
+      }
+    }
+    checkExistingEmergency()
+
     // Direct emergency subscription — fires for ALL emergency inserts regardless of email
     const emergencyChannel = sensorSupabase
       .channel('supervisor-emergency-alerts')
@@ -139,7 +166,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         schema: 'public',
         table: 'sensor_data'
       }, (payload) => {
-        if (payload.new?.emergency === true) {
+        // Coerce to boolean to handle both true and "true" from the DB
+        if (payload.new?.emergency === true || payload.new?.emergency === 'true') {
           setEmergencyActive(true)
           setEmergencyAcknowledged(false)
         }
