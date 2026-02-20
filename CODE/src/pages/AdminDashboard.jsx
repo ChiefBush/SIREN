@@ -6,6 +6,7 @@ import UserProfileModal from '../components/UserProfileModal'
 import ChatFloatingButton from '../components/ChatFloatingButton'
 import Footer from '../components/Footer'
 import EmergencyAlertModal from '../components/EmergencyAlertModal'
+import SupervisorIncidentReports from './SupervisorIncidentReports'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -256,6 +257,7 @@ function AdminDashboard({ onLogout }) {
   const menuItems = [
     { id: 'dashboard', label: 'User Logs', icon: null },
     { id: 'activity', label: 'Activity Logs', icon: null },
+    { id: 'incidents', label: 'Incident Reports', icon: null }
   ]
 
   const getRoleBadgeColor = (role) => {
@@ -343,7 +345,7 @@ function AdminDashboard({ onLogout }) {
 
         {/* Main Content */}
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
-          {activePage === 'dashboard' ? (
+          {activePage === 'dashboard' && (
             <div className="space-y-6">
               {/* Page Title */}
               <div>
@@ -525,7 +527,8 @@ function AdminDashboard({ onLogout }) {
                 </div>
               )}
             </div>
-          ) : (
+          )}
+          {activePage === 'activity' && (
             <div className="space-y-6">
               {/* Page Title */}
               <div>
@@ -590,6 +593,9 @@ function AdminDashboard({ onLogout }) {
                 </div>
               </div>
             </div>
+          )}
+          {activePage === 'incidents' && (
+            <SupervisorIncidentReports isAdmin={true} userId={user?.id} />
           )}
         </main>
         <Footer />

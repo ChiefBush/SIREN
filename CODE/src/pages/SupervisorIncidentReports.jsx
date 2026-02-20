@@ -1,19 +1,48 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-function SupervisorIncidentReports({ userId, userEmail }) {
+function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
     const [incidents, setIncidents] = useState([])
     const [loading, setLoading] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
+    const [editingId, setEditingId] = useState(null)
     const [formData, setFormData] = useState({
         incident_type: 'hazard',
         severity: 'low',
         location: '',
         description: '',
-        date: new Date().toISOString().split('T')[0]
+        date: new Date().toISOString().split('T')[0],
+        status: 'reported'
     })
     const [error, setError] = useState(null)
     const [success, setSuccess] = useState(null)
+
+    const handleDelete = async (id) => {
+        if (!window.confirm("Are you sure you want to delete this incident report?")) return
+        try {
+            setLoading(true)
+            const { error } = await supabase.from('incidents').delete().eq('id', id)
+            if (error) throw error
+            setSuccess('Incident deleted successfully')
+            fetchIncidents()
+        } catch (err) {
+            setError('Failed to delete incident: ' + err.message)
+            setLoading(false)
+        }
+    }
+
+    const handleResolve = async (id) => {
+        try {
+            setLoading(true)
+            const { error } = await supabase.from('incidents').update({ status: 'resolved' }).eq('id', id)
+            if (error) throw error
+            setSuccess('Incident marked as resolved')
+            fetchIncidents()
+        } catch (err) {
+            setError('Failed to resolve incident: ' + err.message)
+            setLoading(false)
+        }
+    }
 
     useEffect(() => {
         fetchIncidents()
@@ -48,30 +77,39 @@ function SupervisorIncidentReports({ userId, userEmail }) {
         try {
             const { data: { user } } = await supabase.auth.getUser()
 
-            const newIncident = {
-                ...formData,
-                reported_by: user.id,
-                status: 'reported'
+            const incidentData = {
+                ...formData
             }
 
-            const { error } = await supabase
-                .from('incidents')
-                .insert(newIncident)
+            if (!editingId && !incidentData.reported_by) {
+                incidentData.reported_by = user.id
+            }
+
+            let query = supabase.from('incidents')
+            if (editingId) {
+                query = query.update(incidentData).eq('id', editingId)
+            } else {
+                query = query.insert(incidentData)
+            }
+
+            const { error } = await query
 
             if (error) throw error
 
-            setSuccess('Incident reported successfully')
+            setSuccess(editingId ? 'Incident updated successfully' : 'Incident reported successfully')
             setIsModalOpen(false)
+            setEditingId(null)
             setFormData({
                 incident_type: 'hazard',
                 severity: 'low',
                 location: '',
                 description: '',
-                date: new Date().toISOString().split('T')[0]
+                date: new Date().toISOString().split('T')[0],
+                status: 'reported'
             })
             fetchIncidents()
         } catch (err) {
-            console.error('Error reporting incident:', err)
+            console.error('Error submitting incident:', err)
             setError('Failed to submit report: ' + err.message)
         }
     }
@@ -104,7 +142,18 @@ function SupervisorIncidentReports({ userId, userEmail }) {
                     <p className="text-gray-600 mt-1">Track and manage safety incidents</p>
                 </div>
                 <button
-                    onClick={() => setIsModalOpen(true)}
+                    onClick={() => {
+                        setEditingId(null)
+                        setFormData({
+                            incident_type: 'hazard',
+                            severity: 'low',
+                            location: '',
+                            description: '',
+                            date: new Date().toISOString().split('T')[0],
+                            status: 'reported'
+                        })
+                        setIsModalOpen(true)
+                    }}
                     className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center space-x-2"
                 >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -139,6 +188,7 @@ function SupervisorIncidentReports({ userId, userEmail }) {
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reported By</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                                {isAdmin && <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -178,6 +228,26 @@ function SupervisorIncidentReports({ userId, userEmail }) {
                                                 {incident.status.replace('_', ' ')}
                                             </span>
                                         </td>
+                                        {isAdmin && (
+                                            <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                                {incident.status !== 'resolved' && (
+                                                    <button onClick={() => handleResolve(incident.id)} className="text-green-600 hover:text-green-800 font-medium text-sm">Resolve</button>
+                                                )}
+                                                <button onClick={() => {
+                                                    setEditingId(incident.id)
+                                                    setFormData({
+                                                        incident_type: incident.incident_type,
+                                                        severity: incident.severity,
+                                                        location: incident.location,
+                                                        description: incident.description,
+                                                        date: incident.date,
+                                                        status: incident.status
+                                                    })
+                                                    setIsModalOpen(true)
+                                                }} className="text-blue-600 hover:text-blue-800 font-medium text-sm ml-2">Edit</button>
+                                                <button onClick={() => handleDelete(incident.id)} className="text-red-600 hover:text-red-800 font-medium text-sm ml-2">Delete</button>
+                                            </td>
+                                        )}
                                     </tr>
                                 ))
                             )}
@@ -191,7 +261,7 @@ function SupervisorIncidentReports({ userId, userEmail }) {
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                            <h3 className="text-lg font-bold text-gray-900">Report New Incident</h3>
+                            <h3 className="text-lg font-bold text-gray-900">{editingId ? 'Edit Incident' : 'Report New Incident'}</h3>
                             <button
                                 onClick={() => setIsModalOpen(false)}
                                 className="text-gray-400 hover:text-gray-600"
@@ -234,6 +304,23 @@ function SupervisorIncidentReports({ userId, userEmail }) {
                                     <option value="critical">Critical</option>
                                 </select>
                             </div>
+
+                            {isAdmin && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                                    <select
+                                        required
+                                        value={formData.status}
+                                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-red-500 focus:border-red-500"
+                                    >
+                                        <option value="reported">Reported</option>
+                                        <option value="in_progress">In Progress</option>
+                                        <option value="resolved">Resolved</option>
+                                        <option value="closed">Closed</option>
+                                    </select>
+                                </div>
+                            )}
 
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
