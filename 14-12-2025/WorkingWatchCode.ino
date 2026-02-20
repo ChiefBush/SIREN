@@ -249,8 +249,6 @@ void setup() {
     redBuffer[i] = particleSensor.getRed();
     irBuffer[i] = particleSensor.getIR();
     particleSensor.nextSample();
-
-    particleSensor.nextSample();
   delay(40);
     
     if (i % 10 == 0) {
@@ -455,7 +453,7 @@ void loop() {
       uint8_t displayBPM = beatAvg;
       uint8_t displaySpO2 = 0;
       
-      if ((validSPO2 == 1 || validSPO2 == 0) && spo2 > 0 && spo2 <= 100 && fingerDetected) {
+      if (validSPO2 == 1 && spo2 > 0 && spo2 <= 100 && fingerDetected) {
   displaySpO2 = (uint8_t)spo2;
 } else if (fingerDetected && beatAvg > 0) {
   // If SpO2 algorithm fails but we have heartbeat, estimate from HR
