@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import emailjs from '@emailjs/browser';
 import FooterPageLayout from '../components/FooterPageLayout';
 import d1 from '../images/d1.png';
 import d2 from '../images/d2.png';
@@ -29,32 +30,36 @@ const AboutUs = () => {
 
         const { from_name, reply_to, message } = formData;
 
-        try {
-            // Using FormSubmit.co - A zero-key SMTP proxy
-            // No API keys required. First submission needs confirmation in the target inbox.
-            const response = await fetch("https://formsubmit.co/ajax/caneriesiren@gmail.com", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                },
-                body: JSON.stringify({
-                    name: from_name,
-                    email: reply_to,
-                    message: message,
-                    _subject: `SIREN Contact: ${from_name}`,
-                    _template: "table" // Makes the email look professional
-                })
-            });
+        const serviceId = process.env.REACT_APP_EMAILJS_SERVICE_ID;
+        const templateId = process.env.REACT_APP_EMAILJS_TEMPLATE_ID;
+        const publicKey = process.env.REACT_APP_EMAILJS_PUBLIC_KEY;
 
-            if (response.ok) {
-                setSubmitStatus('success');
-                setFormData({ from_name: '', reply_to: '', message: '' });
-            } else {
-                setSubmitStatus('error');
-            }
+        if (!serviceId || !templateId || !publicKey) {
+            console.error('EmailJS environment variables are missing.');
+            setSubmitStatus('error');
+            return;
+        }
+
+        const templateParams = {
+            title: from_name,
+            name: from_name,
+            from_name: from_name,
+            reply_to: reply_to,
+            message: message
+        };
+
+        try {
+            await emailjs.send(
+                serviceId,
+                templateId,
+                templateParams,
+                publicKey
+            );
+
+            setSubmitStatus('success');
+            setFormData({ from_name: '', reply_to: '', message: '' });
         } catch (error) {
-            console.error('[SMTP] Submission error:', error);
+            console.error('EmailJS Submission error:', error);
             setSubmitStatus('error');
         }
     };
