@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 function SupervisorLeaveManagement() {
@@ -7,6 +7,13 @@ function SupervisorLeaveManagement() {
     const [filter, setFilter] = useState('all') // all, pending, accepted, rejected
     const [confirmDialog, setConfirmDialog] = useState({ show: false, applicationId: null, action: null, minerName: null })
     const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+
+    // Tooltip state
+    const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, reason: '' })
+    const tooltipTimeout = useRef(null)
+
+    // Detail modal state
+    const [selectedApplication, setSelectedApplication] = useState(null)
 
     useEffect(() => {
         fetchAllLeaveApplications()
@@ -32,6 +39,7 @@ function SupervisorLeaveManagement() {
 
         return () => {
             supabase.removeChannel(channel)
+            if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current)
         }
     }, [])
 
@@ -39,8 +47,6 @@ function SupervisorLeaveManagement() {
         setLoading(true)
         try {
             console.log('fetching all leave applications...')
-            // Supervisor sees all applications from all miners
-            // We use a robust select that handles the join to users table
             const { data, error } = await supabase
                 .from('leave_applications')
                 .select(`
@@ -56,7 +62,6 @@ function SupervisorLeaveManagement() {
             if (error) {
                 console.error('Error fetching leave applications:', error)
 
-                // Fallback: try fetching without the join if join failed
                 if (error.message?.includes('users')) {
                     console.log('Attempting fallback fetch without users join...')
                     const { data: fallbackData, error: fallbackError } = await supabase
@@ -102,11 +107,8 @@ function SupervisorLeaveManagement() {
                 console.error('Error updating leave application status:', error)
                 alert('Failed to update status. Please try again.')
             } else {
-                // Show success message
                 setShowSuccessMessage(true)
                 setTimeout(() => setShowSuccessMessage(false), 3000)
-
-                // Refresh applications after update
                 fetchAllLeaveApplications()
             }
         } catch (error) {
@@ -132,6 +134,15 @@ function SupervisorLeaveManagement() {
         }
     }
 
+    const getStatusDotColor = (status) => {
+        switch (status) {
+            case 'accepted': return '#16a34a'
+            case 'rejected': return '#dc2626'
+            case 'pending': return '#d97706'
+            default: return '#6b7280'
+        }
+    }
+
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A'
         const date = new Date(dateString)
@@ -141,6 +152,45 @@ function SupervisorLeaveManagement() {
             day: 'numeric'
         })
     }
+
+    // Tooltip handlers
+    const handleRowMouseEnter = (e, reason) => {
+        if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current)
+        const rect = e.currentTarget.getBoundingClientRect()
+        const targetX = rect.left + rect.width / 2
+        const targetY = rect.top - 12
+        tooltipTimeout.current = setTimeout(() => {
+            setTooltip({
+                visible: true,
+                x: targetX,
+                y: targetY,
+                reason: reason || 'No reason provided'
+            })
+        }, 200)
+    }
+
+    const handleRowMouseMove = (e) => {
+        if (!tooltip.visible) return
+        setTooltip(prev => ({
+            ...prev,
+            x: e.clientX,
+            y: e.clientY - 48
+        }))
+    }
+
+    const handleRowMouseLeave = () => {
+        if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current)
+        setTooltip(prev => ({ ...prev, visible: false }))
+    }
+
+    // Row click handler — open detail modal
+    const handleRowClick = (e, application) => {
+        // Don't open modal if clicking action buttons
+        if (e.target.closest('button')) return
+        setSelectedApplication(application)
+    }
+
+    const closeDetailModal = () => setSelectedApplication(null)
 
     // Filter applications based on selected filter
     const filteredApplications = allApplications.filter((app) => {
@@ -229,9 +279,12 @@ function SupervisorLeaveManagement() {
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
-                        <h3 className="text-xl font-bold text-gray-900">
-                            All Leave Applications
-                        </h3>
+                        <div>
+                            <h3 className="text-xl font-bold text-gray-900">
+                                All Leave Applications
+                            </h3>
+                            <p className="text-xs text-gray-400 mt-0.5">Hover a row to preview reason · Click a row for full details</p>
+                        </div>
                         <div className="flex items-center space-x-4">
                             {/* Filter Buttons */}
                             <div className="flex items-center space-x-2">
@@ -335,9 +388,23 @@ function SupervisorLeaveManagement() {
                                     const start = new Date(application.start_date)
                                     const end = new Date(application.end_date)
                                     const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1
+                                    const isSelected = selectedApplication?.id === application.id
 
                                     return (
-                                        <tr key={application.id} className="hover:bg-gray-50">
+                                        <tr
+                                            key={application.id}
+                                            onClick={(e) => handleRowClick(e, application)}
+                                            onMouseEnter={(e) => handleRowMouseEnter(e, application.reason)}
+                                            onMouseMove={handleRowMouseMove}
+                                            onMouseLeave={handleRowMouseLeave}
+                                            style={{
+                                                cursor: 'pointer',
+                                                transition: 'background-color 0.15s ease, box-shadow 0.15s ease',
+                                                backgroundColor: isSelected ? '#eff6ff' : undefined,
+                                                boxShadow: isSelected ? 'inset 3px 0 0 #2563eb' : undefined,
+                                            }}
+                                            className={`hover:bg-blue-50 ${isSelected ? 'ring-1 ring-inset ring-blue-200' : ''}`}
+                                        >
                                             <td className="px-6 py-4 whitespace-nowrap">
                                                 <div className="text-sm font-medium text-gray-900">
                                                     {application.users?.full_name || 'N/A'}
@@ -403,6 +470,210 @@ function SupervisorLeaveManagement() {
                 )}
             </div>
 
+            {/* ── Hover Tooltip ── */}
+            {tooltip.visible && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        left: tooltip.x,
+                        top: tooltip.y,
+                        transform: 'translateX(-50%)',
+                        zIndex: 9999,
+                        pointerEvents: 'none',
+                        animation: 'tooltipFadeIn 0.15s ease',
+                    }}
+                >
+                    <div
+                        style={{
+                            background: 'rgba(17, 24, 39, 0.92)',
+                            backdropFilter: 'blur(6px)',
+                            color: '#f9fafb',
+                            borderRadius: '8px',
+                            padding: '8px 14px',
+                            maxWidth: '280px',
+                            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+                            fontSize: '13px',
+                            lineHeight: '1.5',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                            <svg style={{ width: '14px', height: '14px', marginTop: '2px', flexShrink: 0, color: '#93c5fd' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                            <div>
+                                <div style={{ fontWeight: 600, fontSize: '11px', color: '#93c5fd', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason</div>
+                                <div style={{ wordBreak: 'break-word' }}>{tooltip.reason}</div>
+                            </div>
+                        </div>
+                        {/* Tooltip arrow */}
+                        <div style={{
+                            position: 'absolute',
+                            bottom: '-6px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '6px solid transparent',
+                            borderRight: '6px solid transparent',
+                            borderTop: '6px solid rgba(17, 24, 39, 0.92)',
+                        }} />
+                    </div>
+                </div>
+            )}
+
+            {/* ── Detail Modal ── */}
+            {selectedApplication && (
+                <div
+                    className="fixed inset-0 flex items-center justify-center z-50"
+                    style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', animation: 'modalFadeIn 0.2s ease' }}
+                    onClick={closeDetailModal}
+                >
+                    <div
+                        className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 overflow-hidden"
+                        style={{ animation: 'modalSlideUp 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Modal header */}
+                        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between"
+                            style={{ background: 'linear-gradient(135deg, #eff6ff 0%, #ffffff 100%)' }}>
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-100 rounded-xl">
+                                    <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-bold text-gray-900">Leave Application Details</h3>
+                                    <p className="text-xs text-gray-500">Full information for this request</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={closeDetailModal}
+                                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        {/* Modal body */}
+                        <div className="px-6 py-5 space-y-4">
+                            {/* Status banner */}
+                            <div className="flex items-center justify-between p-3 rounded-xl"
+                                style={{
+                                    background: selectedApplication.status === 'accepted' ? '#f0fdf4'
+                                        : selectedApplication.status === 'rejected' ? '#fef2f2'
+                                            : '#fefce8'
+                                }}>
+                                <div className="flex items-center gap-2">
+                                    <span
+                                        style={{
+                                            width: 10, height: 10, borderRadius: '50%',
+                                            background: getStatusDotColor(selectedApplication.status),
+                                            display: 'inline-block',
+                                            boxShadow: `0 0 0 3px ${selectedApplication.status === 'accepted' ? '#bbf7d0'
+                                                : selectedApplication.status === 'rejected' ? '#fecaca' : '#fde68a'}`
+                                        }}
+                                    />
+                                    <span className={`text-sm font-semibold ${getStatusColor(selectedApplication.status)} px-2 py-0.5 rounded-full`}>
+                                        {selectedApplication.status.charAt(0).toUpperCase() + selectedApplication.status.slice(1)}
+                                    </span>
+                                </div>
+                                <span className="text-xs text-gray-500">
+                                    Applied {new Date(selectedApplication.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                </span>
+                            </div>
+
+                            {/* Details grid */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <DetailField
+                                    icon={
+                                        <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                        </svg>
+                                    }
+                                    label="Employee Name"
+                                    value={selectedApplication.users?.full_name || 'N/A'}
+                                />
+                                <DetailField
+                                    icon={
+                                        <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                                        </svg>
+                                    }
+                                    label="Leave Type"
+                                    value={selectedApplication.leave_type ? (selectedApplication.leave_type.charAt(0).toUpperCase() + selectedApplication.leave_type.slice(1)) : 'N/A'}
+                                />
+                                <DetailField
+                                    icon={
+                                        <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                    }
+                                    label="Start Date"
+                                    value={formatDate(selectedApplication.start_date)}
+                                />
+                                <DetailField
+                                    icon={
+                                        <svg className="w-4 h-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                    }
+                                    label="End Date"
+                                    value={formatDate(selectedApplication.end_date)}
+                                />
+                            </div>
+
+                            {/* Reason — full width */}
+                            <div className="p-4 rounded-xl bg-gray-50 border border-gray-100">
+                                <div className="flex items-center gap-2 mb-2">
+                                    <svg className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                                    </svg>
+                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Reason</span>
+                                </div>
+                                <p className="text-sm text-gray-800 leading-relaxed">
+                                    {selectedApplication.reason || <span className="text-gray-400 italic">No reason provided</span>}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Modal footer */}
+                        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                            {selectedApplication.status === 'pending' && (
+                                <>
+                                    <button
+                                        onClick={() => {
+                                            showConfirmation(selectedApplication.id, 'rejected', selectedApplication.users?.full_name)
+                                            closeDetailModal()
+                                        }}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                                    >
+                                        Reject
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            showConfirmation(selectedApplication.id, 'accepted', selectedApplication.users?.full_name)
+                                            closeDetailModal()
+                                        }}
+                                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors text-sm font-medium"
+                                    >
+                                        Accept
+                                    </button>
+                                </>
+                            )}
+                            <button
+                                onClick={closeDetailModal}
+                                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors text-sm font-medium"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Success Message */}
             {showSuccessMessage && (
                 <div className="fixed top-4 right-4 bg-green-50 border border-green-200 text-green-800 px-6 py-4 rounded-lg shadow-lg z-50">
@@ -450,6 +721,35 @@ function SupervisorLeaveManagement() {
                     </div>
                 </div>
             )}
+
+            {/* Tooltip & modal animations */}
+            <style>{`
+                @keyframes tooltipFadeIn {
+                    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+                    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+                }
+                @keyframes modalFadeIn {
+                    from { opacity: 0; }
+                    to   { opacity: 1; }
+                }
+                @keyframes modalSlideUp {
+                    from { opacity: 0; transform: translateY(24px) scale(0.97); }
+                    to   { opacity: 1; transform: translateY(0) scale(1); }
+                }
+            `}</style>
+        </div>
+    )
+}
+
+// Small helper component for the detail modal fields
+function DetailField({ icon, label, value }) {
+    return (
+        <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
+            <div className="flex items-center gap-1.5 mb-1">
+                {icon}
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{label}</span>
+            </div>
+            <p className="text-sm font-medium text-gray-800">{value}</p>
         </div>
     )
 }
