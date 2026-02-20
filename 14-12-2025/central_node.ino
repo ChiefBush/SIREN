@@ -509,7 +509,7 @@ String determineAirQuality(int mq2, int mq9, int mq135, bool mq2Digital, bool mq
 }
 
 void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
-  DynamicJsonDocument receivedDoc(768);
+  DynamicJsonDocument receivedDoc(900);
   
   DeserializationError error = deserializeJson(receivedDoc, cleanedPacket);
   if (error) {
@@ -567,24 +567,7 @@ bool mq135Digital = receivedDoc["mq135_digital"] | false;
     Serial.println("║  Node: " + nodeId + String(35 - nodeId.length(), ' ') + "║");
     Serial.println("║  Emergency Count: " + String(emergenciesDetected) + String(27 - String(emergenciesDetected).length(), ' ') + "║");
     Serial.println("╚════════════════════════════════════════════╝\n");
-    
-    if (canSendEmergencyEmail(nodeId)) {
-      Serial.println(">>> SENDING EMERGENCY EMAIL <<<");
-      sendEmergencyEmail(receivedDoc, rssi, snr);
-      recordEmergency(nodeId);
-    } else {
-      unsigned long timeSinceLastEmail = 0;
-      for (int i = 0; i < EMAIL_BUFFER_SIZE; i++) {
-        if (emergencyBuffer[i].nodeId == nodeId) {
-          timeSinceLastEmail = (millis() - emergencyBuffer[i].lastAlertTime) / 1000;
-          break;
-        }
-      }
-      Serial.println("⏱ Rate limit active for node " + nodeId);
-      Serial.println("   Time since last email: " + String(timeSinceLastEmail) + "s");
-      Serial.println("   Cooldown period: " + String(EMAIL_SEND_TIMEOUT/1000) + "s");
-      Serial.println("   Email skipped\n");
-    }
+    Serial.println("Emergency logged to Supabase.");
   } else {
     if (DEBUG_MODE) {
       Serial.println("📊 Normal packet (non-emergency) from node " + nodeId);
@@ -592,7 +575,7 @@ bool mq135Digital = receivedDoc["mq135_digital"] | false;
   }
   
   // Build upload document
-  DynamicJsonDocument uploadDoc(1536);
+  DynamicJsonDocument uploadDoc(1600);
   uploadDoc["sensor_node_id"] = nodeId;
   uploadDoc["sensor_packet_count"] = sensorPacketCount;
   uploadDoc["sensor_timestamp"] = receivedDoc["timestamp"] | 0;
@@ -632,6 +615,7 @@ if (airQuality == "DANGER") {
   uploadDoc["motion_gyro"] = motionGyro;
   uploadDoc["bpm"] = receivedDoc["bpm"] | 0;
   uploadDoc["spo2"] = receivedDoc["spo2"] | 0;
+  uploadDoc["body_temp"] = receivedDoc["body_temp"] | 0.0f;
   uploadDoc["wristband_connected"] = receivedDoc["wristband_connected"] | 0;
   uploadDoc["emergency"] = isEmergency;  // Add emergency field to database
   uploadDoc["central_node_id"] = CENTRAL_NODE_ID;
