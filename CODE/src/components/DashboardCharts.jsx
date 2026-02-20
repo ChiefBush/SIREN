@@ -2,13 +2,15 @@ import { useSensorData } from '../hooks/useSensorData'
 import CombinedMQChart from './CombinedMQChart'
 import DHT11Chart from './DHT11Chart'
 import FallDetectionChart from './FallDetectionChart'
+import WatchVitalsChart from './WatchVitalsChart'
 
 /**
  * Reusable Dashboard Charts component
- * Displays 3 charts in a responsive grid layout:
+ * Displays 4 charts in a responsive grid layout:
  * 1. Combined MQ Sensors (MQ2, MQ9, MQ135)
  * 2. DHT11 (Temperature + Humidity)
  * 3. Fall Detection (Accelerometer + Gyroscope)
+ * 4. Watch Vitals (BPM + SpO2)
  */
 function DashboardCharts({ userId = null, userEmail = null, stacked = false }) {
     const { sensorHistory, loading } = useSensorData(userId, userEmail)
@@ -41,7 +43,7 @@ function DashboardCharts({ userId = null, userEmail = null, stacked = false }) {
             </div>
 
             {/* Charts Grid */}
-            <div className={`grid ${stacked ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-3'} gap-6`}>
+            <div className={`grid ${stacked ? 'grid-cols-1' : 'grid-cols-1 lg:grid-cols-2'} gap-6`}>
                 {/* Chart 1: Combined MQ Sensors */}
                 <div className="w-full">
                     <CombinedMQChart
@@ -63,6 +65,15 @@ function DashboardCharts({ userId = null, userEmail = null, stacked = false }) {
                 {/* Chart 3: Fall Detection (Accelerometer + Gyroscope) */}
                 <div className="w-full">
                     <FallDetectionChart
+                        data={chartData}
+                        height={stacked ? 400 : 300}
+                        isDashboard={true}
+                    />
+                </div>
+
+                {/* Chart 4: Watch Vitals (Heart Rate + SpO2) */}
+                <div className="w-full">
+                    <WatchVitalsChart
                         data={chartData}
                         height={stacked ? 400 : 300}
                         isDashboard={true}
