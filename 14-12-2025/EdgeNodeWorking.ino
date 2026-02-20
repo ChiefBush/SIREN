@@ -177,7 +177,7 @@ bool dhtReady = false;
 bool mpuReady = false;
 
 unsigned long lastLoRaSend = 0;
-int loraInterval = 30000;
+int loraInterval = 10000;
 int packetCount = 0;
 
 unsigned long lastDHTReading = 0;
@@ -932,19 +932,15 @@ void loop() {
   if (millis() - lastNormalReading >= 10000) {
     lastNormalReading = millis();
     
-    // Read all sensors
     SensorData data = readAllSensors();
-    data.emergency = false;  // Normal reading, not emergency
+    data.emergency = false;
     data.motion = motionData;
     
-    // Display readings
     displayReadings(data);
-    
-    // Check for alerts
     checkAlerts(data);
     
-    // Send via LoRa if ready and interval passed
-    if (loraReady && (millis() - lastLoRaSend >= loraInterval)) {
+    // Send every 10 seconds (loraInterval = 10000, same as reading interval)
+    if (loraReady) {
       sendLoRaData(data);
       lastLoRaSend = millis();
     }
@@ -1401,7 +1397,7 @@ void checkAlerts(SensorData data) {
   }
 }
 void sendLoRaData(SensorData data) {
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<600> doc;
   doc["node"] = NODE_ID;
   doc["timestamp"] = data.timestamp;
   doc["temp"] = data.temperature;
@@ -1420,7 +1416,7 @@ void sendLoRaData(SensorData data) {
   doc["body_temp"] = wristbandStatus.connected ? wristbandStatus.bodyTemp : 0.0f;
   doc["wristband_connected"] = wristbandStatus.connected ? 1 : 0;
   
-  char payload[512];
+  char payload[600];
   size_t n = serializeJson(doc, payload, sizeof(payload));
   
   if (!loraReady) { 
@@ -1528,15 +1524,15 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
     wristbandStatus.bpm = vitals.bpm;
     wristbandStatus.spo2 = vitals.spo2;
     wristbandStatus.fingerDetected = (vitals.finger != 0);
-    wristbandStatus.bodyTemp = (float)vitals.temperature;  // ← ADD THIS
+    wristbandStatus.bodyTemp = (float)vitals.temperature;
     wristbandStatus.lastUpdate = millis();
     wristbandStatus.connected = true;
-    
-    Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s ts=%lu\n",
-                  wristbandStatus.bpm, 
-                  wristbandStatus.spo2, 
-                  wristbandStatus.fingerDetected ? "YES" : "NO", 
-                  wristbandStatus.bodyTemp,          // ← ADD THIS
+
+    Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s bodyTemp=%.1f°C ts=%lu\n",
+                  wristbandStatus.bpm,
+                  wristbandStatus.spo2,
+                  wristbandStatus.fingerDetected ? "YES" : "NO",
+                  wristbandStatus.bodyTemp,
                   (unsigned long)vitals.timestamp);
                   
   } else if (msgType == MSG_TYPE_ACK) {
