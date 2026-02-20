@@ -10,6 +10,7 @@ import UserProfileModal from '../components/UserProfileModal'
 import ChatFloatingButton from '../components/ChatFloatingButton'
 import SupervisorIncidentReports from './SupervisorIncidentReports'
 import Footer from '../components/Footer'
+import EmergencyAlertModal from '../components/EmergencyAlertModal'
 
 function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
@@ -21,9 +22,17 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [activeStatuses, setActiveStatuses] = useState({})
   const [notifications, setNotifications] = useState([])
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
 
   // Get sensor data for dashboard
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
+
+  // Reset acknowledgement whenever a NEW emergency event fires
+  useEffect(() => {
+    if (sensorData.emergency) {
+      setEmergencyAcknowledged(false)
+    }
+  }, [sensorData.emergency])
 
   const showNotification = (data) => {
     const notificationId = data.application_id ? `leave-${data.application_id}` : Date.now() + Math.random()
@@ -598,6 +607,12 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
       {/* Chat Functionality */}
       {user && <ChatFloatingButton currentUser={user} />}
+
+      {/* Emergency SOS Popup Alert */}
+      <EmergencyAlertModal
+        isOpen={sensorData.emergency && !emergencyAcknowledged}
+        onDismiss={() => setEmergencyAcknowledged(true)}
+      />
     </div>
   )
 }

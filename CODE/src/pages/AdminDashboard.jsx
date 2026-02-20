@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { supabase, sensorSupabase } from '../lib/supabase'
 import Logo from '../components/Logo'
 import UserProfileModal from '../components/UserProfileModal'
 import ChatFloatingButton from '../components/ChatFloatingButton'
 import Footer from '../components/Footer'
+import EmergencyAlertModal from '../components/EmergencyAlertModal'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -21,6 +22,10 @@ function AdminDashboard({ onLogout }) {
   const [loading, setLoading] = useState(true)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
+  // Emergency SOS state
+  const [emergencyActive, setEmergencyActive] = useState(false)
+  const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
+
   const menuRef = useRef(null)
 
   useEffect(() => {
@@ -29,6 +34,21 @@ function AdminDashboard({ onLogout }) {
     fetchAllUsers()
     fetchActivityLogs()
 
+    // Subscribe to sensor_data for emergency events
+    const emergencyChannel = sensorSupabase
+      .channel('admin-emergency-alerts')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'sensor_data'
+      }, (payload) => {
+        if (payload.new?.emergency === true) {
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false) // Re-trigger popup for each new emergency
+        }
+      })
+      .subscribe()
+
     // Click outside listener to close menus
     const handleClickOutside = (event) => {
       if (menuRef.current && !menuRef.current.contains(event.target)) {
@@ -36,7 +56,10 @@ function AdminDashboard({ onLogout }) {
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      sensorSupabase.removeChannel(emergencyChannel)
+    }
   }, [])
 
   const fetchActivityLogs = async () => {
@@ -296,6 +319,13 @@ function AdminDashboard({ onLogout }) {
               <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
             </div>
             <div className="text-gray-600 flex items-center space-x-4">
+              {/* Emergency active badge */}
+              {emergencyActive && (
+                <span className="flex items-center gap-1.5 px-3 py-1 bg-red-600 text-white text-xs font-bold rounded-full animate-pulse">
+                  <span className="w-2 h-2 bg-white rounded-full inline-block animate-ping" />
+                  EMERGENCY ACTIVE
+                </span>
+              )}
               <button
                 onClick={() => setIsProfileOpen(true)}
                 className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
@@ -584,6 +614,12 @@ function AdminDashboard({ onLogout }) {
 
       {/* Chat Functionality */}
       {user && <ChatFloatingButton currentUser={user} />}
+
+      {/* Emergency SOS Popup Alert */}
+      <EmergencyAlertModal
+        isOpen={emergencyActive && !emergencyAcknowledged}
+        onDismiss={() => setEmergencyAcknowledged(true)}
+      />
     </div>
   )
 }
