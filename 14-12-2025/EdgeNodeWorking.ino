@@ -113,10 +113,11 @@ enum AudioFiles {
 #define MAX_TEXT_LEN 128
 
 typedef struct __attribute__((packed)) {
-  uint8_t msgType;      // MSG_TYPE_VITALS
-  uint8_t bpm;          // 0..255
-  uint8_t spo2;         // 0..100
-  uint8_t finger;       // 0/1
+  uint8_t msgType;
+  uint8_t bpm;
+  uint8_t spo2;
+  uint8_t finger;
+  int8_t temperature;   // body temp from wristband (°C)
   uint32_t timestamp;
 } espnow_vitals_t;
 
@@ -218,11 +219,12 @@ struct WristbandStatus {
   uint8_t bpm;
   uint8_t spo2;
   bool fingerDetected;
+  float bodyTemp;        // ← ADD THIS
   unsigned long lastUpdate;
   bool connected;
   uint32_t lastMessageId;
   bool messageAcknowledged;
-} wristbandStatus = {0,0,false,0,false,0,false};
+} wristbandStatus = {0, 0, false, 0.0f, 0, false, 0, false};
 
 // Wristband MAC address (update if different)
 uint8_t wristbandMac[6] = {0x0C, 0x4E, 0xA0, 0x66, 0xB2, 0x78}; 
@@ -1415,6 +1417,7 @@ void sendLoRaData(SensorData data) {
   doc["motion_gyro"] = data.motion.totalGyro;
   doc["bpm"] = wristbandStatus.connected ? wristbandStatus.bpm : 0;
   doc["spo2"] = wristbandStatus.connected ? wristbandStatus.spo2 : 0;
+  doc["body_temp"] = wristbandStatus.connected ? wristbandStatus.bodyTemp : 0.0f;
   doc["wristband_connected"] = wristbandStatus.connected ? 1 : 0;
   
   char payload[512];
@@ -1525,6 +1528,7 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
     wristbandStatus.bpm = vitals.bpm;
     wristbandStatus.spo2 = vitals.spo2;
     wristbandStatus.fingerDetected = (vitals.finger != 0);
+    wristbandStatus.bodyTemp = (float)vitals.temperature;  // ← ADD THIS
     wristbandStatus.lastUpdate = millis();
     wristbandStatus.connected = true;
     
@@ -1532,6 +1536,7 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
                   wristbandStatus.bpm, 
                   wristbandStatus.spo2, 
                   wristbandStatus.fingerDetected ? "YES" : "NO", 
+                  wristbandStatus.bodyTemp,          // ← ADD THIS
                   (unsigned long)vitals.timestamp);
                   
   } else if (msgType == MSG_TYPE_ACK) {
@@ -1609,6 +1614,7 @@ void checkWristbandConnection() {
     // Clear vitals data when disconnected
     wristbandStatus.bpm = 0;
     wristbandStatus.spo2 = 0;
+    wristbandStatus.bodyTemp = 0.0f;
     wristbandStatus.fingerDetected = false;
   }
 }
