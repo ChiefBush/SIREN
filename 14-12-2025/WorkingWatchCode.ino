@@ -249,7 +249,7 @@ void setup() {
     redBuffer[i] = particleSensor.getRed();
     irBuffer[i] = particleSensor.getIR();
     particleSensor.nextSample();
-  delay(40);
+  // delay(40);
     
     if (i % 10 == 0) {
       display.setCursor(0, 30);
@@ -387,39 +387,40 @@ void loop() {
   }
 
   // === SPO2 CONTINUOUS SAMPLING (Example 3) ===
+  // WITH THIS:
   if (bufferFilled) {
-    // Shift buffer - dump first 25 samples, move last 75 to top
-    if (bufferIndex >= 25) {
-      for (byte i = 25; i < 100; i++) {
-        redBuffer[i - 25] = redBuffer[i];
-        irBuffer[i - 25] = irBuffer[i];
-      }
-      bufferIndex = 75; // Start filling from position 75
+    // Only add sample if finger is detected (prevents polluting buffer with noise)
+    if (irValue > IR_THRESHOLD) {
+      redBuffer[bufferIndex] = redValue;
+      irBuffer[bufferIndex] = irValue;
+      bufferIndex++;
     }
-    
-    // Take new sample
-    redBuffer[bufferIndex] = redValue;
-    irBuffer[bufferIndex] = irValue;
     particleSensor.nextSample();
     
-    bufferIndex++;
-    
-    // After collecting 25 new samples (reaching index 100), recalculate
+    // Once we've collected 100 fresh samples, run the SpO2 algorithm
     if (bufferIndex >= 100) {
-      if (bufferIndex >= 100 && (millis() - lastSpO2Calc >= 500)) {
-        maxim_heart_rate_and_oxygen_saturation(irBuffer, bufferLength, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
-        lastSpO2Calc = millis();
-        
-        Serial.print("SpO2 Algorithm: HR=");
-        Serial.print(heartRate);
-        Serial.print(", HRvalid=");
-        Serial.print(validHeartRate);
-        Serial.print(", SPO2=");
-        Serial.print(spo2);
-        Serial.print(", SPO2Valid=");
-        Serial.println(validSPO2);
-      }
-      bufferIndex = 0; // Reset for next cycle
+      maxim_heart_rate_and_oxygen_saturation(
+        irBuffer, bufferLength, redBuffer,
+        &spo2, &validSPO2, &heartRate, &validHeartRate
+      );
+      lastSpO2Calc = millis();
+      bufferIndex = 0; // Reset for next 100-sample window
+      
+      Serial.print("SpO2 Algorithm: HR=");
+      Serial.print(heartRate);
+      Serial.print(", HRvalid=");
+      Serial.print(validHeartRate);
+      Serial.print(", SPO2=");
+      Serial.print(spo2);
+      Serial.print(", SPO2Valid=");
+      Serial.println(validSPO2);
+    }
+    
+    // If finger removed mid-collection, reset buffer to avoid stale data
+    if (irValue <= IR_THRESHOLD && bufferIndex > 0) {
+      bufferIndex = 0;
+      spo2 = 0;
+      validSPO2 = 0;
     }
   }
 
@@ -455,10 +456,11 @@ void loop() {
       
       if (validSPO2 == 1 && spo2 > 0 && spo2 <= 100 && fingerDetected) {
   displaySpO2 = (uint8_t)spo2;
-} else if (fingerDetected && beatAvg > 0) {
-  // If SpO2 algorithm fails but we have heartbeat, estimate from HR
-  displaySpO2 = 97;  // Show reasonable default when finger is detected
-}
+   }
+// } else if (fingerDetected && beatAvg > 0) {
+//   // If SpO2 algorithm fails but we have heartbeat, estimate from HR
+//   displaySpO2 = 97;  // Show reasonable default when finger is detected
+// }
       
       displayVitalsScreen(displayBPM, displaySpO2, fingerDetected, edgeNodeConnected, currentTemperature);
     }
@@ -498,6 +500,9 @@ void loop() {
       
       // Use validated SpO2 from algorithm
       if (validSPO2 == 1 && spo2 > 0 && spo2 <= 100) {
+        spo2Send = (uint8_t)spo2;
+      } else if (spo2 > 80 && spo2 <= 100) {
+        // validSPO2 may be 0 but value is physiologically plausible — send it
         spo2Send = (uint8_t)spo2;
       }
     }
