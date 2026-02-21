@@ -532,17 +532,14 @@ void checkEmergencyButton() {
 void handleEmergency() {
   Serial.println("\n████████ EMERGENCY MODE █████████");
   
-  // Play emergency audio FIRST before doing anything else
   if (audioReady) {
-    playAudioFile(EMERGENCY_TRIPLE_TAP);  // Play 0010.mp3 for triple tap emergency
+    playAudioFile(EMERGENCY_TRIPLE_TAP);
     Serial.println("✓ Playing emergency triple-tap audio");
-    delay(100);  // Small delay to ensure audio command is sent
+    delay(100);
   }
   
-  // Set the pending emergency flag so the main loop will send it
-  pendingEmergency = true;
-  
   SensorData s = readAllSensors();
+
   s.emergency = true;
   s.motion = motionData;
   
@@ -559,7 +556,7 @@ void handleEmergency() {
     Serial.println("⚠ LoRa not ready - emergency packet queued");
   }
   
-  delay(500);  // Give some time for audio to play
+  delay(200);  // Give some time for audio to play
 }
 
 // -------------------------- Setup & Loop --------------------------
@@ -871,6 +868,12 @@ delay(100);
   
   Serial.println("\n🚀 Edge node is now operational!");
   Serial.println("Listening for commands and monitoring sensors...\n");
+
+  if (loraReady) {
+    LoRa.receive();
+    Serial.println("✓ LoRa in receive mode");
+  }
+
 }
 
 // ==================== LOOP FUNCTION ====================
@@ -1427,6 +1430,7 @@ void sendLoRaData(SensorData data) {
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
+  LoRa.receive(); 
   
   packetCount++;
   
