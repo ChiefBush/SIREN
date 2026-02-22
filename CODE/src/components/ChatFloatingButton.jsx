@@ -9,6 +9,8 @@ export default function ChatFloatingButton({ currentUser }) {
     const [messages, setMessages] = useState([])
     const [loading, setLoading] = useState(false)
     const [senderRole, setSenderRole] = useState('admin') // fetched from users table
+    const [hoveredMsgId, setHoveredMsgId] = useState(null)
+    const [deletingId, setDeletingId] = useState(null)
     const messagesEndRef = useRef(null)
 
     // Fetch the sender's actual role from the users profile table
@@ -105,6 +107,24 @@ export default function ChatFloatingButton({ currentUser }) {
             .subscribe()
 
         return channel
+    }
+
+    const handleDeleteMessage = async (msgId) => {
+        if (!window.confirm('Delete this message?')) return
+        setDeletingId(msgId)
+        try {
+            const { error } = await supabase
+                .from('chat_messages')
+                .delete()
+                .eq('id', msgId)
+            if (error) throw error
+            setMessages(prev => prev.filter(m => m.id !== msgId))
+        } catch (err) {
+            console.error('Error deleting message:', err)
+            alert('Failed to delete message: ' + err.message)
+        } finally {
+            setDeletingId(null)
+        }
     }
 
     const handleSendMessage = async (e) => {
@@ -222,8 +242,39 @@ export default function ChatFloatingButton({ currentUser }) {
                                     ) : (
                                         messages.map(msg => {
                                             const isMine = msg.sender_role !== 'miner';
+                                            const isHovered = hoveredMsgId === msg.id;
+                                            const isDeleting = deletingId === msg.id;
                                             return (
-                                                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                                <div
+                                                    key={msg.id}
+                                                    className={`flex items-end gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}
+                                                    onMouseEnter={() => setHoveredMsgId(msg.id)}
+                                                    onMouseLeave={() => setHoveredMsgId(null)}
+                                                >
+                                                    {/* Delete button — left of message for sent, right for received, admin only */}
+                                                    {senderRole === 'admin' && (
+                                                        <button
+                                                            onClick={() => handleDeleteMessage(msg.id)}
+                                                            disabled={isDeleting}
+                                                            title="Delete message"
+                                                            className={`flex-shrink-0 transition-all duration-150 ${isHovered && !isDeleting
+                                                                    ? 'opacity-100 scale-100'
+                                                                    : 'opacity-0 scale-75 pointer-events-none'
+                                                                } ${isMine ? 'order-first' : 'order-last'}`}
+                                                        >
+                                                            {isDeleting ? (
+                                                                <svg className="w-4 h-4 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                                                                </svg>
+                                                            ) : (
+                                                                <svg className="w-4 h-4 text-red-400 hover:text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            )}
+                                                        </button>
+                                                    )}
+
                                                     <div className={`max-w-[75%] px-3 py-2 rounded-lg text-sm ${isMine ? 'bg-blue-100 text-blue-900' : 'bg-gray-100 text-gray-800'}`}>
                                                         {msg.message_text}
                                                         <div className="flex items-center justify-end space-x-1 mt-1 text-right text-xs opacity-60">

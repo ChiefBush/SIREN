@@ -26,6 +26,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const [emergencyAcknowledged, setEmergencyAcknowledged] = useState(false)
   const lastEmergencyIncidentRef = useRef(null) // tracks last incident created to prevent duplicates
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
+  const lastWarningRowIdRef = useRef(null) // tracks last sensor row checked for warnings to prevent duplicate incidents
 
   // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
@@ -53,6 +54,71 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         timestamp: new Date()
       }, ...prev]
     })
+  }
+
+  // Sensor thresholds (must match those used in getSensorStatus and the dashboard)
+  const SENSOR_THRESHOLDS = {
+    mq2: { warning: 300, critical: 500, label: 'MQ-2 (LPG/Smoke)', unit: 'ppm', type: 'hazard' },
+    mq9: { warning: 200, critical: 400, label: 'MQ-9 (CO/Flammable Gas)', unit: 'ppm', type: 'hazard' },
+    mq135: { warning: 400, critical: 700, label: 'MQ-135 (Air Quality)', unit: 'ppm', type: 'environmental' },
+    temperature: { warning: 35, critical: 45, label: 'Temperature (DHT11)', unit: '°C', type: 'hazard' },
+    humidity: { warning: 80, critical: 95, label: 'Humidity (DHT11)', unit: '%', type: 'environmental' },
+  }
+
+  // Auto-log warning/critical sensor readings as incidents
+  const createSensorWarningIncident = async (sensorRow) => {
+    try {
+      const rowId = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || '')
+      if (!rowId || rowId === lastWarningRowIdRef.current) return
+      lastWarningRowIdRef.current = rowId
+
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const reportedBy = authUser?.id || null
+
+      // Map raw sensor row fields to our named values
+      const readings = {
+        mq2: parseFloat(sensorRow?.mq2_analog || sensorRow?.mq2) || 0,
+        mq9: parseFloat(sensorRow?.mq9_analog || sensorRow?.mq9) || 0,
+        mq135: parseFloat(sensorRow?.mq135_analog || sensorRow?.mq135) || 0,
+        temperature: parseFloat(sensorRow?.temperature || sensorRow?.dht11_temp) || 0,
+        humidity: parseFloat(sensorRow?.humidity || sensorRow?.dht11_humidity) || 0,
+      }
+
+      const recordedAt = new Date().toLocaleString()
+      const todayDate = new Date().toISOString().split('T')[0]
+
+      for (const [key, thresholds] of Object.entries(SENSOR_THRESHOLDS)) {
+        const value = readings[key]
+        if (value === 0) continue // skip zero/missing readings
+
+        let severity = null
+        if (value >= thresholds.critical) {
+          severity = 'critical'
+        } else if (value >= thresholds.warning) {
+          severity = 'medium'
+        }
+
+        if (!severity) continue // reading is safe — skip
+
+        const { error } = await supabase.from('incidents').insert({
+          incident_type: thresholds.type,
+          severity,
+          status: 'reported',
+          location: 'Helmet Sensor Node',
+          description: `⚠️ AUTO-LOGGED SENSOR ${severity === 'critical' ? 'CRITICAL' : 'WARNING'}: ${thresholds.label} reading of ${value.toFixed(1)} ${thresholds.unit} exceeded ${severity === 'critical' ? 'critical' : 'warning'} threshold (${severity === 'critical' ? thresholds.critical : thresholds.warning} ${thresholds.unit}). Recorded at ${recordedAt}. Immediate inspection recommended.`,
+          date: todayDate,
+          reported_by: reportedBy
+        })
+
+        if (error) {
+          console.error(`[SIREN] Failed to log ${key} warning incident:`, error)
+        } else {
+          console.log(`[SIREN] Sensor warning incident logged for ${key} (${value} ${thresholds.unit})`)
+        }
+      }
+    } catch (err) {
+      console.error('[SIREN] Error in createSensorWarningIncident:', err)
+    }
   }
 
   // Auto-create a critical incident in the incidents table when an emergency is detected
@@ -212,6 +278,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
           console.log('[SIREN] Emergency poll row (Timestamp order):', data2)
           const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
+          // Always check warnings for every new row (deduplication happens inside)
+          createSensorWarningIncident(data2)
           if (isEmergency) {
             const rowId = String(data2?.id || data2?.created_at || '')
             if (rowId !== lastAlertedEmergencyIdRef.current) {
@@ -226,6 +294,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         }
 
         console.log('[SIREN] Emergency poll row:', data)
+        // Always check warnings for every new row (deduplication happens inside)
+        createSensorWarningIncident(data)
         const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
         if (isEmergency) {
           // Only alert if this is a NEW emergency row (different id from the last one we showed)
@@ -256,6 +326,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         table: 'sensor_data'
       }, (payload) => {
         console.log('[SIREN] Realtime emergency event received:', payload.new)
+        // Check warnings on every realtime insert too
+        createSensorWarningIncident(payload.new)
         if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
           const rowId = String(payload.new?.id || payload.new?.created_at || '')
           if (rowId !== lastAlertedEmergencyIdRef.current) {
