@@ -8,7 +8,26 @@ export default function ChatFloatingButton({ currentUser }) {
     const [message, setMessage] = useState('')
     const [messages, setMessages] = useState([])
     const [loading, setLoading] = useState(false)
+    const [senderRole, setSenderRole] = useState('admin') // fetched from users table
     const messagesEndRef = useRef(null)
+
+    // Fetch the sender's actual role from the users profile table
+    useEffect(() => {
+        const fetchSenderRole = async () => {
+            if (!currentUser?.id) return
+            try {
+                const { data } = await supabase
+                    .from('users')
+                    .select('role')
+                    .eq('id', currentUser.id)
+                    .single()
+                if (data?.role) setSenderRole(data.role)
+            } catch (err) {
+                console.error('ChatFloatingButton: could not fetch sender role', err)
+            }
+        }
+        fetchSenderRole()
+    }, [currentUser?.id])
 
     // Fetch miners for the list
     useEffect(() => {
@@ -52,10 +71,10 @@ export default function ChatFloatingButton({ currentUser }) {
     const fetchMessages = async (minerId) => {
         try {
             const { data, error } = await supabase
-                .from('messages')
+                .from('chat_messages') // The table is actually called chat_messages
                 .select('*')
-                .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${minerId}),and(sender_id.eq.${minerId},receiver_id.eq.${currentUser.id})`)
-                .order('created_at', { ascending: true })
+                .eq('user_id', minerId)
+                .order('timestamp', { ascending: true })
 
             if (error) throw error
             setMessages(data || [])
@@ -73,11 +92,12 @@ export default function ChatFloatingButton({ currentUser }) {
                 {
                     event: 'INSERT',
                     schema: 'public',
-                    table: 'messages',
-                    filter: `receiver_id=eq.${currentUser.id}` // Listen for replies (if miners could reply) or just updates
+                    table: 'chat_messages',
+                    filter: `user_id=eq.${minerId}`
                 },
                 (payload) => {
-                    if (payload.new.sender_id === minerId) {
+                    // if it's from the miner
+                    if (payload.new.sender_role === 'miner') {
                         setMessages(prev => [...prev, payload.new])
                     }
                 }
@@ -94,26 +114,58 @@ export default function ChatFloatingButton({ currentUser }) {
         setLoading(true)
         try {
             const newMessage = {
-                sender_id: currentUser.id,
-                receiver_id: selectedMiner.id,
-                content: message.trim(),
-                is_read: false
+                user_id: selectedMiner.id,
+                sender_role: senderRole, // fetched from users table (e.g. 'admin', 'supervisor')
+                message_text: message.trim(),
+                delivery_status: 'sent'
             }
 
             const { data, error } = await supabase
-                .from('messages')
+                .from('chat_messages') // The table is actually called chat_messages based on standard app behavior if 'messages' fails
                 .insert(newMessage)
                 .select()
                 .single()
 
-            if (error) throw error
+            if (error) {
+                console.error("Supabase insert error:", error);
+                alert(`Error saving message to database: ${error?.message || error?.details || JSON.stringify(error)}`);
+                setLoading(false)
+                return;
+            }
 
-            // Optimistically update UI or wait for subscription? 
-            // Since we are sender, we insert and then add to state is faster.
-            setMessages(prev => [...prev, data])
+            let apiSuccess = false;
+            // Send packet to the central node (Arduino/ESP32) via HTTP API
+            try {
+                // Replace with actual central node IP in .env
+                const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://192.168.1.100'
+
+                const response = await fetch(`${centralNodeUrl}/send`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        miner_id: selectedMiner.id,
+                        message: message.trim()
+                    }),
+                })
+
+                if (response.ok) {
+                    apiSuccess = true;
+                } else {
+                    alert(`Failed to send packet to watch. Node responded with status: ${response.status}`);
+                }
+            } catch (apiError) {
+                console.error('Error sending packet to central node:', apiError)
+                alert('Connection to Central Node failed. Make sure the Node is online and the IP is correct setup in .env file.');
+            }
+
+            // Optimistically update UI
+            setMessages(prev => [...prev, { ...data, api_success: apiSuccess }])
             setMessage('')
         } catch (error) {
             console.error('Error sending message:', error)
+            alert(`Error saving message to database: ${error?.message || error?.details || JSON.stringify(error)}`);
         } finally {
             setLoading(false)
         }
@@ -168,16 +220,37 @@ export default function ChatFloatingButton({ currentUser }) {
                                             No messages yet. Send a message to start conversation.
                                         </div>
                                     ) : (
-                                        messages.map(msg => (
-                                            <div key={msg.id} className={`flex ${msg.sender_id === currentUser.id ? 'justify-end' : 'justify-start'}`}>
-                                                <div className={`max-w-[75%] px-3 py-2 rounded-lg text-sm ${msg.sender_id === currentUser.id ? 'bg-blue-100 text-blue-900' : 'bg-gray-100 text-gray-800'}`}>
-                                                    {msg.content}
-                                                    <div className="text-xs opacity-50 mt-1 text-right">
-                                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        messages.map(msg => {
+                                            const isMine = msg.sender_role !== 'miner';
+                                            return (
+                                                <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                                                    <div className={`max-w-[75%] px-3 py-2 rounded-lg text-sm ${isMine ? 'bg-blue-100 text-blue-900' : 'bg-gray-100 text-gray-800'}`}>
+                                                        {msg.message_text}
+                                                        <div className="flex items-center justify-end space-x-1 mt-1 text-right text-xs opacity-60">
+                                                            <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            {/* Status Indicator */}
+                                                            {isMine && (
+                                                                <span className="ml-1" title={msg.api_success === false ? "Failed to send to watch" : msg.delivery_status === 'read' ? "Read" : "Sent to watch"}>
+                                                                    {msg.api_success === false ? (
+                                                                        <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                        </svg>
+                                                                    ) : msg.delivery_status === 'read' ? (
+                                                                        <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7M5 13l4 4L19 7" />
+                                                                        </svg>
+                                                                    ) : (
+                                                                        <svg className="w-3.5 h-3.5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                                        </svg>
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ))
+                                            );
+                                        })
                                     )}
                                     <div ref={messagesEndRef} />
                                 </div>

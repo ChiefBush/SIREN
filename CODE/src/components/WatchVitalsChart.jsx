@@ -1,4 +1,3 @@
-```javascript
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 /**
@@ -35,9 +34,9 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
     const hasNoData = !hasBpm && !hasSpo2
 
     return (
-        <div className={`bg - white rounded - lg ${ isDashboard ? 'p-6' : 'p-4' } shadow - md h - full`}>
+        <div className={`bg-white rounded-lg ${isDashboard ? 'p-6' : 'p-4'} shadow-md h-full`}>
             <div className="flex items-center justify-between">
-                <h3 className={`${ titleSize } font - semibold text - gray - 900 ${ isDashboard ? 'mb-2' : 'mb-2' } `}>Smartwatch Vitals</h3>
+                <h3 className={`${titleSize} font-semibold text-gray-900 ${isDashboard ? 'mb-2' : 'mb-2'} `}>Smartwatch Vitals</h3>
                 <div className="flex items-center space-x-3 mb-2">
                     {hasBpm && (
                         <span className="flex items-center space-x-1 text-xs text-red-500 font-semibold">
@@ -94,11 +93,11 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                         <Tooltip
                             formatter={(value, name) => {
                                 if (value === null || value === undefined) return ['--', name]
-                                if (name === 'Heart Rate') return [`${ value } BPM`, 'Heart Rate']
-                                if (name === 'Blood O₂') return [`${ value }% `, 'Blood O₂']
+                                if (name === 'Heart Rate') return [`${value} BPM`, 'Heart Rate']
+                                if (name === 'Blood O₂') return [`${value}% `, 'Blood O₂']
                                 return [value, name]
                             }}
-                            labelFormatter={(label) => `Time: ${ formatTime(label) } `}
+                            labelFormatter={(label) => `Time: ${formatTime(label)}`}
                             contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px' }}
                         />
                         <Legend />
@@ -134,4 +133,3 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
 }
 
 export default WatchVitalsChart
-```
