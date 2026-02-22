@@ -10,6 +10,7 @@
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <WebServer.h>
 
 #define WIFI_SSID "iPhone"
 #define WIFI_PASSWORD "12345678"
@@ -23,7 +24,17 @@
 #define SENDER_PASSWORD "jczhurwioeagagiw"  // App password without spaces
 #define SUPERVISOR_EMAIL "caneriesiren@gmail.com"
 
-const char* ntpServer = "pool.ntp.org";
+#define DEBUG_MODE true
+
+// Multiple NTP servers for better reliability
+const char* ntpServers[] = {
+  "pool.ntp.org",
+  "time.nist.gov",
+  "time.google.com",
+  "time.cloudflare.com",
+  "time.windows.com"
+};
+const int ntpServerCount = 5;
 const long gmtOffset_sec = 19800;
 const int daylightOffset_sec = 0;
 
@@ -33,11 +44,24 @@ const int daylightOffset_sec = 0;
 #define LORA_SS 18     
 #define LORA_RST 14    
 #define LORA_DIO0 2    
-#define LORA_BAND 915E6
+#define LORA_BAND 433E6
 #define CENTRAL_NODE_ID "CENTRAL_GATEWAY_001"
 
 #define EMAIL_SEND_TIMEOUT 300000
 #define EMAIL_BUFFER_SIZE 10
+
+#define MESSAGE_TEST_INTERVAL 300000
+
+// Structure to track packet counts per node
+struct NodePacketTracker {
+  String nodeId;
+  unsigned long packetCount;
+  unsigned long lastSeenTime;
+};
+
+#define MAX_TRACKED_NODES 10
+NodePacketTracker nodeTrackers[MAX_TRACKED_NODES];
+int trackedNodesCount = 0;
 
 bool wifiConnected = false;
 bool supabaseReady = false;
@@ -53,6 +77,14 @@ unsigned long lastStatsDisplay = 0;
 unsigned long lastWiFiCheck = 0;
 unsigned long lastNTPSync = 0;
 
+unsigned long messagesDeliveredToWristband = 0;  // Successfully ACKed by wristband
+
+unsigned long messagesSentToEdge = 0;
+unsigned long lastTestMessage = 0;
+
+unsigned long getNodePacketCount(String nodeId);
+String determineAirQuality(int mq2, int mq9, int mq135, bool mq2Digital, bool mq9Digital, bool mq135Digital);
+
 struct EmergencyRecord {
   String nodeId;
   unsigned long lastAlertTime;
@@ -63,6 +95,7 @@ int emergencyBufferIndex = 0;
 
 HTTPClient http;
 WiFiClientSecure client;
+WebServer server(80); 
 
 void displayStatistics();
 String getCurrentDateTime();
@@ -89,30 +122,70 @@ void setup() {
   
   initializeLoRa();
   initializeWiFi();
+
+  // Register HTTP endpoints
+  server.on("/send", HTTP_POST, handleSendMessage);
+  server.on("/send", HTTP_OPTIONS, handleSendMessage);  // CORS preflight
+  server.on("/health", HTTP_GET, []() {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.send(200, "application/json", "{\"status\":\"ok\",\"lora\":" + String(loraReady ? "true" : "false") + "}");
+  });
+  server.begin();
+  Serial.println("HTTP server started on port 80");
+  Serial.println("Endpoint: POST http://" + WiFi.localIP().toString() + "/send");
   
   if (wifiConnected) {
     initializeNTP();
     initializeSupabase();
   }
-  
+
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║     MESSAGE RELAY SYSTEM ENABLED           ║");
+  Serial.println("╠════════════════════════════════════════════╣");
+  Serial.println("║ Commands:                                  ║");
+  Serial.println("║   msg <text>  - Send message to wristband  ║");
+  Serial.println("║   testmsg     - Send test message           ║");
+  Serial.println("║   msgstats    - Show statistics             ║");
+  Serial.println("║   help        - Show command list           ║");
+  Serial.println("╚════════════════════════════════════════════╝\n");
+  // ========== END OF NEW LINES ==========
   Serial.println("Central Node ready!\n");
 }
 
 void loop() {
+  server.handleClient();
+  // Check WiFi connection (existing code - no changes)
   if (millis() - lastWiFiCheck > 30000) {
     checkWiFiConnection();
     lastWiFiCheck = millis();
   }
   
+  // Check NTP sync (existing code - no changes)
   if (!ntpSynced && wifiConnected && (millis() - lastNTPSync > 300000)) {
     initializeNTP();
     lastNTPSync = millis();
   }
   
+  // ========== ADD THIS BLOCK HERE ==========
+  // NEW: Handle message commands from Serial Monitor
+  handleMessageCommands();
+  
+  // NEW: Optional - Send automatic test messages (comment out if not needed)
+  // Uncomment the block below to send test messages every 5 minutes
+  /*
+  if (millis() - lastTestMessage > MESSAGE_TEST_INTERVAL) {
+    sendMessageToWristband("Automatic test message at " + getCurrentDateTime());
+    lastTestMessage = millis();
+  }
+  */
+  // ========== END OF NEW BLOCK ==========
+  
+  // Handle LoRa packets (existing code - no changes)
   if (loraReady) {
     handleLoRaPackets();
   }
   
+  // Display statistics (existing code - no changes)
   if (millis() - lastStatsDisplay > 60000) {
     displayStatistics();
     lastStatsDisplay = millis();
@@ -120,14 +193,13 @@ void loop() {
   
   delay(50);
 }
-
 void initializeLoRa() {
   Serial.println("Initializing LoRa...");
   
   SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
   LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
   
-  if (!LoRa.begin(LORA_BAND)) {
+  if (!LoRa.begin(LORA_BAND)) {  // Now 433E6
     Serial.println("ERROR: LoRa failed!");
     loraReady = false;
     return;
@@ -139,6 +211,10 @@ void initializeLoRa() {
   LoRa.setCodingRate4(8);
   LoRa.setPreambleLength(8);
   LoRa.setSyncWord(0x34);
+  
+  // ADD these lines for better 433 MHz performance:
+  LoRa.enableCrc();
+  LoRa.setOCP(240);
   
   Serial.println("LoRa OK\n");
   loraReady = true;
@@ -182,19 +258,42 @@ void checkWiFiConnection() {
 void initializeNTP() {
   if (!wifiConnected) return;
   
-  Serial.println("Syncing NTP...");
-  configTime(gmtOffset_sec, daylightOffset_sec, "pool.ntp.org");
+  Serial.println("Syncing NTP with multiple servers...");
   
   struct tm timeinfo;
-  int attempts = 0;
-  while (!getLocalTime(&timeinfo) && attempts < 20) {
-    delay(500);
-    attempts++;
+  bool syncSuccess = false;
+  
+  // Try each NTP server until one works
+  for (int serverIndex = 0; serverIndex < ntpServerCount && !syncSuccess; serverIndex++) {
+    Serial.print("  Trying ");
+    Serial.print(ntpServers[serverIndex]);
+    Serial.print("... ");
+    
+    configTime(gmtOffset_sec, daylightOffset_sec, ntpServers[serverIndex]);
+    
+    int attempts = 0;
+    while (!getLocalTime(&timeinfo) && attempts < 10) {
+      delay(500);
+      attempts++;
+    }
+    
+    if (attempts < 10) {
+      syncSuccess = true;
+      ntpSynced = true;
+      Serial.println("✓ Success!");
+      Serial.print("  Current time: ");
+      Serial.println(getCurrentDateTime());
+      break;
+    } else {
+      Serial.println("✗ Failed");
+    }
   }
   
-  if (attempts < 20) {
-    ntpSynced = true;
-    Serial.println("NTP OK\n");
+  if (!syncSuccess) {
+    Serial.println("❌ All NTP servers failed");
+    ntpSynced = false;
+  } else {
+    Serial.println("NTP sync complete\n");
   }
 }
 
@@ -291,44 +390,265 @@ String cleanJsonPacket(String rawPacket) {
   return cleaned;
 }
 
-void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
-  DynamicJsonDocument receivedDoc(512);
-  if (deserializeJson(receivedDoc, cleanedPacket)) {
-    packetsCorrupted++;
-    Serial.println("ERROR: JSON parse failed");
-    return;
-  }
-  
-  bool isEmergency = receivedDoc["emergency"] | false;
-  String nodeId = receivedDoc["nodeId"] | "UNKNOWN";
-  
-  if (isEmergency) {
-    emergenciesDetected++;
-    Serial.println("\n╔════════════════════════════════════╗");
-    Serial.println("║  EMERGENCY SIGNAL RECEIVED!        ║");
-    Serial.println("╚════════════════════════════════════╝\n");
-    
-    if (canSendEmergencyEmail(nodeId)) {
-      sendEmergencyEmail(receivedDoc, rssi, snr);
-      recordEmergency(nodeId);
-    } else {
-      Serial.println("Rate limit active - email skipped\n");
+// Get or create packet count for a node
+unsigned long getNodePacketCount(String nodeId) {
+  // Find existing node
+  for (int i = 0; i < trackedNodesCount; i++) {
+    if (nodeTrackers[i].nodeId == nodeId) {
+      nodeTrackers[i].packetCount++;
+      nodeTrackers[i].lastSeenTime = millis();
+      return nodeTrackers[i].packetCount;
     }
   }
   
-  DynamicJsonDocument uploadDoc(1024);
+  // Node not found, add new one
+  if (trackedNodesCount < MAX_TRACKED_NODES) {
+    nodeTrackers[trackedNodesCount].nodeId = nodeId;
+    nodeTrackers[trackedNodesCount].packetCount = 1;
+    nodeTrackers[trackedNodesCount].lastSeenTime = millis();
+    trackedNodesCount++;
+    return 1;
+  }
+  
+  // Buffer full, replace oldest entry
+  int oldestIndex = 0;
+  unsigned long oldestTime = nodeTrackers[0].lastSeenTime;
+  for (int i = 1; i < MAX_TRACKED_NODES; i++) {
+    if (nodeTrackers[i].lastSeenTime < oldestTime) {
+      oldestTime = nodeTrackers[i].lastSeenTime;
+      oldestIndex = i;
+    }
+  }
+  
+  nodeTrackers[oldestIndex].nodeId = nodeId;
+  nodeTrackers[oldestIndex].packetCount = 1;
+  nodeTrackers[oldestIndex].lastSeenTime = millis();
+  return 1;
+}
+
+// Determine air quality based on comprehensive sensor analysis
+String determineAirQuality(int mq2, int mq9, int mq135, bool mq2Digital, bool mq9Digital, bool mq135Digital) {
+  /*
+   * COMPREHENSIVE AIR QUALITY ANALYSIS
+   * 
+   * MQ2:  Detects smoke, LPG, propane, methane, hydrogen
+   *       Analog: 0-1023 (higher = more gas)
+   *       Digital: true = gas detected above threshold
+   * 
+   * MQ9:  Detects carbon monoxide (CO) and combustible gases
+   *       Analog: 0-1023 (higher = more CO)
+   *       Digital: true = dangerous CO levels
+   * 
+   * MQ135: General air quality - NH3, NOx, alcohol, benzene, smoke, CO2
+   *       Analog: 0-1023 (higher = worse air quality)
+   *       Digital: true = poor air quality detected
+   * 
+   * THRESHOLDS (calibrated for mining environments):
+   * - Safe:     < 300 analog, no digital triggers
+   * - Fair:     300-400 analog, no digital triggers
+   * - Moderate: 400-500 analog, or 1 digital trigger
+   * - Bad:      500-650 analog, or 2 digital triggers
+   * - Danger:   > 650 analog, or all 3 digital triggers
+   */
+  
+  // Count digital triggers (immediate danger indicators)
+  int digitalAlerts = 0;
+  if (mq2Digital) digitalAlerts++;
+  if (mq9Digital) digitalAlerts++;
+  if (mq135Digital) digitalAlerts++;
+  
+  // CRITICAL: If all 3 digital sensors triggered = IMMEDIATE DANGER
+  if (digitalAlerts >= 3) {
+    return "DANGER";
+  }
+  
+  // Analyze analog readings with weighted scoring
+  int dangerScore = 0;
+  int badScore = 0;
+  int moderateScore = 0;
+  int fairScore = 0;
+  
+  // MQ2 Analysis (Smoke/Flammable Gas) - HIGHEST PRIORITY in mines
+  if (mq2 > 700 || mq2Digital) {
+    dangerScore += 3;  // Critical: explosion risk
+  } else if (mq2 > 550) {
+    badScore += 2;
+  } else if (mq2 > 320) {
+    moderateScore += 2;
+  } else if (mq2 > 100) {
+    fairScore += 1;
+  }
+  
+  // MQ9 Analysis (Carbon Monoxide) - HIGH PRIORITY (silent killer)
+  if (mq9 > 4000 || mq9Digital) {
+    dangerScore += 3;  // Critical: CO poisoning risk
+  } else if (mq9 > 3200) {
+    badScore += 2;
+  } else if (mq9 > 2400) {
+    moderateScore += 2;
+  } else if (mq9 > 1600) {
+    fairScore += 1;
+  }
+  
+  // MQ135 Analysis (General Air Quality) - MEDIUM PRIORITY
+  if (mq135 > 2200 || mq135Digital) {
+    dangerScore += 2;  // Critical: toxic air
+  } else if (mq135 > 1800) {
+    badScore += 2;
+  } else if (mq135 > 1400) {
+    moderateScore += 1;
+  } else if (mq135 > 1000) {
+    fairScore += 1;
+  }
+  
+  // Additional checks for digital alerts
+  if (digitalAlerts >= 2) {
+    dangerScore += 2;  // Two sensors in digital alert = very dangerous
+  } else if (digitalAlerts == 1) {
+    badScore += 1;
+  }
+  
+  // DECISION LOGIC (prioritize worst conditions)
+  if (dangerScore >= 4) {
+    return "DANGER";
+  } else if (dangerScore >= 2 || badScore >= 4) {
+    return "BAD";
+  } else if (dangerScore >= 1 || badScore >= 2 || moderateScore >= 3) {
+    return "MODERATE";
+  } else if (moderateScore >= 1 || fairScore >= 2) {
+    return "FAIR";
+  } else {
+    return "GOOD";
+  }
+}
+
+void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
+  DynamicJsonDocument receivedDoc(900);
+  
+  DeserializationError error = deserializeJson(receivedDoc, cleanedPacket);
+  if (error) {
+    packetsCorrupted++;
+    Serial.println("ERROR: JSON parse failed: " + String(error.c_str()));
+    Serial.println("Raw packet: " + cleanedPacket);
+    return;
+  }
+  
+  // DEBUG: Print entire received JSON
+  if (DEBUG_MODE) {
+    Serial.println("\n=== RECEIVED JSON DEBUG ===");
+    serializeJsonPretty(receivedDoc, Serial);
+    Serial.println("\n===========================");
+  }
+  
+  // CRITICAL FIX: Check for emergency field more robustly
+  bool isEmergency = false;
+  
+  // Method 1: Check if field exists and is true
+  if (receivedDoc.containsKey("emergency")) {
+    JsonVariant emergencyVar = receivedDoc["emergency"];
+    
+    if (emergencyVar.is<bool>()) {
+      isEmergency = emergencyVar.as<bool>();
+    } else if (emergencyVar.is<int>()) {
+      isEmergency = (emergencyVar.as<int>() != 0);
+    } else if (emergencyVar.is<const char*>()) {
+      String emergencyStr = emergencyVar.as<String>();
+      emergencyStr.toLowerCase();
+      isEmergency = (emergencyStr == "true" || emergencyStr == "1");
+    }
+    
+    Serial.println("Emergency field found: " + String(isEmergency ? "TRUE" : "FALSE"));
+  } else {
+    Serial.println("WARNING: No 'emergency' field in JSON");
+  }
+  
+  String nodeId = receivedDoc["node"] | "UNKNOWN";
+unsigned long sensorPacketCount = getNodePacketCount(nodeId);
+
+// ⭐ ADD THESE 3 LINES HERE ⭐
+bool mq2Digital = receivedDoc["mq2_digital"] | false;
+bool mq9Digital = receivedDoc["mq9_digital"] | false;
+bool mq135Digital = receivedDoc["mq135_digital"] | false;
+
+
+  
+  // Handle emergency
+  if (isEmergency) {
+    emergenciesDetected++;
+    
+    Serial.println("\n╔════════════════════════════════════════════╗");
+    Serial.println("║  🚨 EMERGENCY SIGNAL RECEIVED! 🚨          ║");
+    Serial.println("║  Node: " + nodeId + String(35 - nodeId.length(), ' ') + "║");
+    Serial.println("║  Emergency Count: " + String(emergenciesDetected) + String(27 - String(emergenciesDetected).length(), ' ') + "║");
+    Serial.println("╚════════════════════════════════════════════╝\n");
+    
+    if (canSendEmergencyEmail(nodeId)) {
+      Serial.println(">>> SENDING EMERGENCY EMAIL <<<");
+      sendEmergencyEmail(receivedDoc, rssi, snr);
+      recordEmergency(nodeId);
+    } else {
+      unsigned long timeSinceLastEmail = 0;
+      for (int i = 0; i < EMAIL_BUFFER_SIZE; i++) {
+        if (emergencyBuffer[i].nodeId == nodeId) {
+          timeSinceLastEmail = (millis() - emergencyBuffer[i].lastAlertTime) / 1000;
+          break;
+        }
+      }
+      Serial.println("⏱ Rate limit active for node " + nodeId);
+      Serial.println("   Time since last email: " + String(timeSinceLastEmail) + "s");
+      Serial.println("   Cooldown period: " + String(EMAIL_SEND_TIMEOUT/1000) + "s");
+      Serial.println("   Email skipped\n");
+    }
+  } else {
+    if (DEBUG_MODE) {
+      Serial.println("📊 Normal packet (non-emergency) from node " + nodeId);
+    }
+  }
+  
+  // Build upload document
+  DynamicJsonDocument uploadDoc(1600);
   uploadDoc["sensor_node_id"] = nodeId;
-  uploadDoc["sensor_packet_count"] = receivedDoc["packetCount"] | 0;
+  uploadDoc["sensor_packet_count"] = sensorPacketCount;
   uploadDoc["sensor_timestamp"] = receivedDoc["timestamp"] | 0;
-  uploadDoc["temperature"] = receivedDoc["temperature"];
-  uploadDoc["humidity"] = receivedDoc["humidity"] | 0;
-  uploadDoc["mq2_analog"] = receivedDoc["mq2_analog"] | 0;
-  uploadDoc["mq9_analog"] = receivedDoc["mq9_analog"] | 0;
-  uploadDoc["mq135_analog"] = receivedDoc["mq135_analog"] | 0;
-  uploadDoc["mq2_digital"] = receivedDoc["mq2_digital"] | false;
-  uploadDoc["mq9_digital"] = receivedDoc["mq9_digital"] | false;
-  uploadDoc["mq135_digital"] = receivedDoc["mq135_digital"] | false;
-  uploadDoc["air_quality"] = receivedDoc["air_quality"] | "Unknown";
+  uploadDoc["temperature"] = receivedDoc["temp"];
+  uploadDoc["humidity"] = receivedDoc["hum"] | 0;
+  uploadDoc["mq2_analog"] = receivedDoc["mq2"] | 0;
+  uploadDoc["mq9_analog"] = receivedDoc["mq9"] | 0;
+  uploadDoc["mq135_analog"] = receivedDoc["mq135"] | 0;
+  uploadDoc["mq2_digital"] = mq2Digital;
+uploadDoc["mq9_digital"] = mq9Digital;
+uploadDoc["mq135_digital"] = mq135Digital;
+
+// Calculate air quality with comprehensive logic
+int mq2 = receivedDoc["mq2"] | 0;
+int mq9 = receivedDoc["mq9"] | 0;
+int mq135 = receivedDoc["mq135"] | 0;
+String airQuality = determineAirQuality(mq2, mq9, mq135, mq2Digital, mq9Digital, mq135Digital);
+uploadDoc["air_quality"] = airQuality;
+
+// Log air quality warnings
+if (airQuality == "DANGER") {
+  Serial.println("🚨 CRITICAL AIR QUALITY: DANGER");
+} else if (airQuality == "BAD") {
+  Serial.println("⚠️  WARNING: BAD air quality detected");
+} else if (airQuality == "MODERATE") {
+  Serial.println("⚡ CAUTION: MODERATE air quality");
+}
+  // Use explicit float conversion
+  float motionAccel = receivedDoc["motion_accel"].as<float>();
+  float motionGyro = receivedDoc["motion_gyro"].as<float>();
+
+  // Safety check
+  if (isnan(motionAccel)) motionAccel = 0.0f;
+  if (isnan(motionGyro)) motionGyro = 0.0f;
+
+  uploadDoc["motion_accel"] = motionAccel;
+  uploadDoc["motion_gyro"] = motionGyro;
+  uploadDoc["bpm"] = receivedDoc["bpm"] | 0;
+  uploadDoc["spo2"] = receivedDoc["spo2"] | 0;
+  uploadDoc["body_temp"] = receivedDoc["body_temp"] | 0.0f;
+  uploadDoc["wristband_connected"] = receivedDoc["wristband_connected"] | 0;
+  uploadDoc["emergency"] = isEmergency;  // Add emergency field to database
   uploadDoc["central_node_id"] = CENTRAL_NODE_ID;
   uploadDoc["received_time"] = getCurrentDateTime();
   uploadDoc["received_timestamp"] = millis();
@@ -339,12 +659,14 @@ void processAndUploadPacket(String cleanedPacket, int rssi, float snr) {
   String jsonString;
   serializeJson(uploadDoc, jsonString);
   
-  Serial.println("Payload: " + jsonString);
+  if (DEBUG_MODE || isEmergency) {
+    Serial.println("Upload Payload: " + jsonString);
+  }
   
   if (supabaseReady) {
     uploadToSupabase(jsonString);
   } else {
-    Serial.println("WARNING: Supabase not ready");
+    Serial.println("WARNING: Supabase not ready - data not uploaded");
   }
 }
 
@@ -383,48 +705,261 @@ void recordEmergency(String nodeId) {
   emergencyBufferIndex++;
 }
 
+//  * Send a text message to wristband via Edge Node relay
+//  * Central → (LoRa) → Edge → (ESP-NOW) → Wristband
+//  * 
+//  * @param message The text message to send (max 120 characters recommended)
+//  * @return true if LoRa transmission succeeded, false otherwise
+//  */
+bool sendMessageToWristband(String message) {
+  if (!loraReady) {
+    Serial.println("❌ ERROR: LoRa not ready - cannot send message");
+    return false;
+  }
+  
+  if (message.length() == 0) {
+    Serial.println("❌ ERROR: Empty message - not sending");
+    return false;
+  }
+  
+  if (message.length() > 120) {
+    Serial.println("⚠️  WARNING: Message too long, truncating to 120 chars");
+    message = message.substring(0, 120);
+  }
+
+  // Create JSON packet with "message" field
+  // Edge node's receiveLoRaMessages() already looks for this field
+  DynamicJsonDocument doc(256);
+  doc["message"] = message;
+  doc["timestamp"] = millis();
+  doc["from"] = "central_node";
+  
+  String payload;
+  serializeJson(doc, payload);
+  
+  Serial.println("\n╔════════════════════════════════════════════╗");
+  Serial.println("║   SENDING MESSAGE TO WRISTBAND VIA EDGE    ║");
+  Serial.println("╚════════════════════════════════════════════╝");
+  Serial.println("Message: " + message);
+  Serial.println("Payload: " + payload);
+  Serial.println("Length: " + String(payload.length()) + " bytes");
+  
+  // Send via LoRa
+  LoRa.beginPacket();
+  LoRa.print(payload);
+  LoRa.endPacket();
+  
+  messagesSentToEdge++;
+  
+  Serial.println("✓ Message transmitted via LoRa (#" + String(messagesSentToEdge) + ")");
+  Serial.println("  → Edge node will forward to wristband via ESP-NOW");
+  Serial.println("════════════════════════════════════════════\n");
+  
+  return true;
+}
+
+void handleSendMessage() {
+  // Handle CORS preflight (OPTIONS request from browser)
+  if (server.method() == HTTP_OPTIONS) {
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.send(204);
+    return;
+  }
+
+  // Add CORS header to all responses
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+
+  if (server.method() != HTTP_POST) {
+    server.send(405, "application/json", "{\"error\":\"Method not allowed\"}");
+    return;
+  }
+
+  String body = server.arg("plain");  // Raw POST body
+  if (body.length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"Empty body\"}");
+    return;
+  }
+
+  Serial.println("\n>>> HTTP REQUEST RECEIVED: POST /send <<<");
+  Serial.println("Body: " + body);
+
+  DynamicJsonDocument doc(256);
+  DeserializationError error = deserializeJson(doc, body);
+  if (error) {
+    server.send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+    return;
+  }
+
+  // Extract message (and optionally miner_id for logging)
+  String message = doc["message"] | "";
+  String minerId = doc["miner_id"] | "unknown";
+
+  if (message.length() == 0) {
+    server.send(400, "application/json", "{\"error\":\"Missing message field\"}");
+    return;
+  }
+
+  Serial.println("Miner ID: " + minerId);
+  Serial.println("Message: " + message);
+
+  // Send to wristband via existing function
+  bool success = sendMessageToWristband(message);
+
+  if (success) {
+    String response = "{\"success\":true,\"message\":\"Delivered to LoRa\",\"miner_id\":\"" + minerId + "\"}";
+    server.send(200, "application/json", response);
+    Serial.println("✓ HTTP response: 200 OK");
+  } else {
+    server.send(500, "application/json", "{\"error\":\"LoRa transmission failed\"}");
+    Serial.println("✗ HTTP response: 500 Error");
+  }
+}
+/**
+ * Check for serial commands to send messages
+ * Commands:
+ *   msg <text>     - Send message to wristband
+ *   testmsg        - Send a test message
+ *   msgstats       - Show message statistics
+ */
+void handleMessageCommands() {
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    
+    if (command.length() == 0) return;
+    
+    // Convert to lowercase for comparison
+    String cmdLower = command;
+    cmdLower.toLowerCase();
+    
+    if (cmdLower.startsWith("msg ")) {
+      // Extract message after "msg "
+      String message = command.substring(4);
+      message.trim();
+      
+      if (message.length() > 0) {
+        Serial.println("\n>>> MANUAL MESSAGE COMMAND RECEIVED <<<");
+        sendMessageToWristband(message);
+      } else {
+        Serial.println("ERROR: No message text provided");
+        Serial.println("Usage: msg <your message here>");
+      }
+    }
+    else if (cmdLower == "testmsg") {
+      Serial.println("\n>>> TEST MESSAGE COMMAND <<<");
+      sendMessageToWristband("This is a test message from central node");
+    }
+    else if (cmdLower == "msgstats") {
+      Serial.println("\n╔════════════════════════════════════════════╗");
+      Serial.println("║      MESSAGE RELAY STATISTICS              ║");
+      Serial.println("╚════════════════════════════════════════════╝");
+      Serial.println("Messages sent to edge node: " + String(messagesSentToEdge));
+      Serial.println("LoRa status: " + String(loraReady ? "✓ Ready" : "✗ Not Ready"));
+      Serial.println("════════════════════════════════════════════\n");
+    }
+    else if (cmdLower == "help" || cmdLower == "commands") {
+      Serial.println("\n╔════════════════════════════════════════════╗");
+      Serial.println("║         MESSAGE RELAY COMMANDS             ║");
+      Serial.println("╠════════════════════════════════════════════╣");
+      Serial.println("║ msg <text>   - Send message to wristband  ║");
+      Serial.println("║ testmsg      - Send test message           ║");
+      Serial.println("║ msgstats     - Show message statistics     ║");
+      Serial.println("║ help         - Show this menu              ║");
+      Serial.println("╚════════════════════════════════════════════╝\n");
+    }
+  }
+}
+
+
 void sendEmergencyEmail(JsonDocument& sensorData, int rssi, float snr) {
   if (!wifiConnected) {
-    Serial.println("ERROR: WiFi disconnected - cannot send email");
+    Serial.println("❌ ERROR: WiFi disconnected - cannot send email");
     return;
   }
   
-  String nodeId = sensorData["nodeId"] | "UNKNOWN";
-  float temperature = sensorData["temperature"] | 0;
-  float humidity = sensorData["humidity"] | 0;
-  int mq2 = sensorData["mq2_analog"] | 0;
-  int mq9 = sensorData["mq9_analog"] | 0;
-  int mq135 = sensorData["mq135_analog"] | 0;
+  Serial.println("\n╔══════════════════════════════════════╗");
+  Serial.println("║   PREPARING EMERGENCY EMAIL          ║");
+  Serial.println("╚══════════════════════════════════════╝\n");
   
-  String subject = "URGENT: Mine Worker Emergency - Node " + nodeId;
-  String emailBody = "EMERGENCY DISTRESS SIGNAL\n\n";
-  emailBody += "Node: " + nodeId + "\n";
-  emailBody += "Time: " + getCurrentDateTime() + "\n\n";
-  emailBody += "Temperature: " + String(temperature, 1) + "C\n";
-  emailBody += "Humidity: " + String(humidity, 1) + "%\n";
-  emailBody += "MQ2: " + String(mq2) + "\n";
-  emailBody += "MQ9: " + String(mq9) + "\n";
-  emailBody += "MQ135: " + String(mq135) + "\n";
-  emailBody += "RSSI: " + String(rssi) + " dBm\n\n";
-  emailBody += "IMMEDIATE ACTION REQUIRED!\n";
+  String nodeId = sensorData["node"] | "UNKNOWN";
+  float temperature = sensorData["temp"] | 0;
+  float humidity = sensorData["hum"] | 0;
+  int mq2 = sensorData["mq2"] | 0;
+  int mq9 = sensorData["mq9"] | 0;
+  int mq135 = sensorData["mq135"] | 0;
+  bool mq2Digital = sensorData["mq2_digital"] | false;  // ✅ CORRECT
+  bool mq9Digital = sensorData["mq9_digital"] | false;  // ✅ CORRECT
+  bool mq135Digital = sensorData["mq135_digital"] | false;  // ✅ CORRECT
+  int bpm = sensorData["bpm"] | 0;
+  int spo2 = sensorData["spo2"] | 0;
+  bool wristbandConnected = sensorData["wristband_connected"] | 0;
+  float motionAccel = sensorData["motion_accel"] | 0;
+  float motionGyro = sensorData["motion_gyro"] | 0;
   
-  Serial.println(">>> Sending emergency email...");
+  String subject = "🚨 URGENT: Mine Worker Emergency - Node " + nodeId;
   
+  String emailBody = "╔═══════════════════════════════════════════╗\n";
+  emailBody += "║   EMERGENCY DISTRESS SIGNAL DETECTED      ║\n";
+  emailBody += "╚═══════════════════════════════════════════╝\n\n";
+  emailBody += "Node ID: " + nodeId + "\n";
+  emailBody += "Timestamp: " + getCurrentDateTime() + "\n";
+  emailBody += "Emergency Count: #" + String(emergenciesDetected) + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "ENVIRONMENTAL CONDITIONS:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "Temperature:     " + String(temperature, 1) + "°C\n";
+  emailBody += "Humidity:        " + String(humidity, 1) + "%\n";
+  emailBody += "MQ2 (Smoke):     " + String(mq2) + "\n";
+  emailBody += "MQ9 (CO):        " + String(mq9) + "\n";
+  emailBody += "MQ135 (Quality): " + String(mq135) + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "MOTION & VITALS:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "Acceleration:    " + String(motionAccel, 2) + " m/s²\n";
+  emailBody += "Gyro Rotation:   " + String(motionGyro, 2) + " °/s\n";
+  emailBody += "Heart Rate:      " + String(bpm) + " BPM\n";
+  emailBody += "Blood Oxygen:    " + String(spo2) + "%\n";
+  emailBody += "Wristband:       " + String(wristbandConnected ? "✓ Connected" : "✗ Disconnected") + "\n\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "SIGNAL QUALITY:\n";
+  emailBody += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+  emailBody += "RSSI:            " + String(rssi) + " dBm\n";
+  emailBody += "SNR:             " + String(snr) + " dB\n\n";
+  emailBody += "⚠️  IMMEDIATE ACTION REQUIRED!\n";
+  emailBody += "    Contact emergency response team.\n";
+  
+  Serial.println("Email Subject: " + subject);
+  Serial.println("Email Length: " + String(emailBody.length()) + " characters");
+  Serial.println();
+  
+  // Try to send email with retries
   for (int attempt = 1; attempt <= 3; attempt++) {
-    Serial.println("Attempt " + String(attempt) + "/3");
+    Serial.println("📧 Email Send Attempt " + String(attempt) + "/3...");
+    
     if (sendSMTPEmail(subject, emailBody)) {
       emailsSent++;
-      Serial.println(">>> Email sent successfully!\n");
+      Serial.println("\n✅ Email sent successfully!");
+      Serial.println("   Total emails sent: " + String(emailsSent));
+      Serial.println("╚══════════════════════════════════════╝\n");
       return;
     }
+    
     if (attempt < 3) {
-      Serial.println("Retrying in 5 seconds...");
+      Serial.println("❌ Attempt " + String(attempt) + " failed. Retrying in 5 seconds...\n");
       delay(5000);
     }
   }
   
-  Serial.println(">>> Email send failed after 3 attempts\n");
-}
+  Serial.println("\n❌ ERROR: Email send failed after 3 attempts");
+  Serial.println("   Check:");
+  Serial.println("   1. WiFi connection");
+  Serial.println("   2. SMTP credentials");
+  Serial.println("   3. Gmail app password");
+  Serial.println("   4. Internet connectivity");
+  Serial.println("╚══════════════════════════════════════╝\n");
+} 
 
 String readSMTPResponse(WiFiClient& client, int timeout) {
   unsigned long start = millis();
@@ -636,13 +1171,43 @@ String getCurrentDateTime() {
 }
 
 void displayStatistics() {
-  Serial.println("\n=== STATISTICS ===");
-  Serial.println("WiFi: " + String(wifiConnected ? "✓" : "✗"));
-  Serial.println("Supabase: " + String(supabaseReady ? "✓" : "✗"));
-  Serial.println("NTP: " + String(ntpSynced ? "✓" : "✗"));
-  Serial.println("RX: " + String(packetsReceived));
-  Serial.println("TX: " + String(packetsUploaded));
-  Serial.println("Emergencies: " + String(emergenciesDetected));
-  Serial.println("Emails: " + String(emailsSent));
-  Serial.println("==================\n");
+  Serial.println("\n╔═══════════════════════════════════════╗");
+  Serial.println("║         SYSTEM STATISTICS             ║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Component Status:                     ║");
+  Serial.println("║   WiFi:      " + String(wifiConnected ? "✓ Connected  " : "✗ Disconnected") + "             ║");
+  Serial.println("║   Supabase:  " + String(supabaseReady ? "✓ Ready      " : "✗ Not Ready  ") + "             ║");
+  Serial.println("║   NTP:       " + String(ntpSynced ? "✓ Synced     " : "✗ Not Synced ") + "             ║");
+  Serial.println("║   LoRa:      " + String(loraReady ? "✓ Active     " : "✗ Offline    ") + "             ║");
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Packet Statistics:                    ║");
+  Serial.println("║   Received:    " + String(packetsReceived) + String(21 - String(packetsReceived).length(), ' ') + "║");
+  Serial.println("║   Uploaded:    " + String(packetsUploaded) + String(21 - String(packetsUploaded).length(), ' ') + "║");
+  Serial.println("║   Corrupted:   " + String(packetsCorrupted) + String(21 - String(packetsCorrupted).length(), ' ') + "║");
+  
+  // ========== ADD THESE LINES HERE ==========
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Message Relay Statistics:             ║");
+  Serial.println("║   Messages Sent: " + String(messagesSentToEdge) + String(17 - String(messagesSentToEdge).length(), ' ') + "║");
+  // ========== END OF NEW LINES ==========
+  
+  Serial.println("╠═══════════════════════════════════════╣");
+  Serial.println("║ Emergency Statistics:                 ║");
+  Serial.println("║   🚨 Emergencies: " + String(emergenciesDetected) + String(19 - String(emergenciesDetected).length(), ' ') + "║");
+  Serial.println("║   📧 Emails Sent: " + String(emailsSent) + String(19 - String(emailsSent).length(), ' ') + "║");
+Serial.println("╠═══════════════════════════════════════╣");
+Serial.println("║ Active Nodes (Packet Counts):         ║");
+if (trackedNodesCount == 0) {
+  Serial.println("║   No nodes tracked yet                ║");
+} else {
+  for (int i = 0; i < trackedNodesCount; i++) {
+    String nodeInfo = "║   " + nodeTrackers[i].nodeId + ": " + String(nodeTrackers[i].packetCount) + " pkts";
+    int padding = 40 - nodeInfo.length();
+    Serial.println(nodeInfo + String(padding, ' ') + "║");
+  }
+}
+Serial.println("╚═══════════════════════════════════════╝\n"); 
+
+  Serial.println("Current Time: " + getCurrentDateTime());
+  Serial.println();
 }
