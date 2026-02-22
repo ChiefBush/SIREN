@@ -533,7 +533,7 @@ uint8_t displayBPM = fingerDetected ? (uint8_t)BufferBPM : 0;
       }
     }
     
-    sendVitals(bpmSend, spo2Send, fingerDetected, currentTemperature);
+    sendVitals(bpmSend, spo2Send, fingerDetected, fingerDetected ? currentTemperature : 0.0);
     lastVitalsSent = millis();
   }
 
