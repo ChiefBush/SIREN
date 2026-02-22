@@ -712,7 +712,7 @@ void recordEmergency(String nodeId) {
 //  * @param message The text message to send (max 120 characters recommended)
 //  * @return true if LoRa transmission succeeded, false otherwise
 //  */
-bool sendMessageToWristband(String message, int maxRetries = 5) {
+bool sendMessageToWristband(String message, int maxRetries = 3) {
   if (!loraReady) {
     Serial.println("❌ ERROR: LoRa not ready - cannot send message");
     return false;
