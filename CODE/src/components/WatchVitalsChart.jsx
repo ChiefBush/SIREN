@@ -36,7 +36,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
     return (
         <div className={`bg-white rounded-lg ${isDashboard ? 'p-6' : 'p-4'} shadow-md h-full`}>
             <div className="flex items-center justify-between">
-                <h3 className={`${titleSize} font-semibold text-gray-900 ${isDashboard ? 'mb-2' : 'mb-2'} `}>Smartwatch Vitals</h3>
+                <h3 className={`${titleSize} font-semibold text-gray-900 ${isDashboard ? 'mb-2' : 'mb-2'}`}>Smartwatch Vitals</h3>
                 <div className="flex items-center space-x-3 mb-2">
                     {hasBpm && (
                         <span className="flex items-center space-x-1 text-xs text-red-500 font-semibold">
@@ -94,7 +94,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                             formatter={(value, name) => {
                                 if (value === null || value === undefined) return ['--', name]
                                 if (name === 'Heart Rate') return [`${value} BPM`, 'Heart Rate']
-                                if (name === 'Blood O₂') return [`${value}% `, 'Blood O₂']
+                                if (name === 'Blood O₂') return [`${value}%`, 'Blood O₂']
                                 return [value, name]
                             }}
                             labelFormatter={(label) => `Time: ${formatTime(label)}`}
@@ -107,10 +107,11 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                                 dataKey="bpm"
                                 stroke="#ef4444"
                                 strokeWidth={isDashboard ? 2.5 : 2}
-                                dot={false}
+                                dot={{ r: 3, fill: '#ef4444' }}
+                                activeDot={{ r: 5 }}
                                 yAxisId="bpm"
                                 name="Heart Rate"
-                                connectNulls={false}
+                                connectNulls={true}
                             />
                         )}
                         {hasSpo2 && (
@@ -119,10 +120,11 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                                 dataKey="spo2"
                                 stroke="#3b82f6"
                                 strokeWidth={isDashboard ? 2.5 : 2}
-                                dot={false}
+                                dot={{ r: 3, fill: '#3b82f6' }}
+                                activeDot={{ r: 5 }}
                                 yAxisId="spo2"
                                 name="Blood O₂"
-                                connectNulls={false}
+                                connectNulls={true}
                             />
                         )}
                     </LineChart>
