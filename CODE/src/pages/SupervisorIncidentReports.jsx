@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
+function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSupervisor = false }) {
     const [incidents, setIncidents] = useState([])
     const [loading, setLoading] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -188,7 +188,7 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reported By</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                {isAdmin && <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>}
+                                {(isAdmin || isSupervisor) && <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -230,24 +230,28 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false }) {
                                                 {incident.status.replace('_', ' ')}
                                             </span>
                                         </td>
-                                        {isAdmin && (
+                                        {(isAdmin || isSupervisor) && (
                                             <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
                                                 {incident.status !== 'resolved' && (
                                                     <button onClick={() => handleResolve(incident.id)} className="text-green-600 hover:text-green-800 font-medium text-sm">Resolve</button>
                                                 )}
-                                                <button onClick={() => {
-                                                    setEditingId(incident.id)
-                                                    setFormData({
-                                                        incident_type: incident.incident_type,
-                                                        severity: incident.severity,
-                                                        location: incident.location,
-                                                        description: incident.description,
-                                                        date: incident.date,
-                                                        status: incident.status
-                                                    })
-                                                    setIsModalOpen(true)
-                                                }} className="text-blue-600 hover:text-blue-800 font-medium text-sm ml-2">Edit</button>
-                                                <button onClick={() => handleDelete(incident.id)} className="text-red-600 hover:text-red-800 font-medium text-sm ml-2">Delete</button>
+                                                {isAdmin && (
+                                                    <>
+                                                        <button onClick={() => {
+                                                            setEditingId(incident.id)
+                                                            setFormData({
+                                                                incident_type: incident.incident_type,
+                                                                severity: incident.severity,
+                                                                location: incident.location,
+                                                                description: incident.description,
+                                                                date: incident.date,
+                                                                status: incident.status
+                                                            })
+                                                            setIsModalOpen(true)
+                                                        }} className="text-blue-600 hover:text-blue-800 font-medium text-sm ml-2">Edit</button>
+                                                        <button onClick={() => handleDelete(incident.id)} className="text-red-600 hover:text-red-800 font-medium text-sm ml-2">Delete</button>
+                                                    </>
+                                                )}
                                             </td>
                                         )}
                                     </tr>

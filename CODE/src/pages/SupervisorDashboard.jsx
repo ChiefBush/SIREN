@@ -723,7 +723,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
           {/* Incident Reports Page */}
           {activePage === 'incidents' && (
-            <SupervisorIncidentReports userId={userId} userEmail={user?.email} />
+            <SupervisorIncidentReports userId={userId} userEmail={user?.email} isSupervisor={true} />
           )}
 
           {/* Leave Management Page */}
