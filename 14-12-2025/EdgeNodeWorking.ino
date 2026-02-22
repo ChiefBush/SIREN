@@ -113,11 +113,10 @@ enum AudioFiles {
 #define MAX_TEXT_LEN 128
 
 typedef struct __attribute__((packed)) {
-  uint8_t msgType;
-  uint8_t bpm;
-  uint8_t spo2;
-  uint8_t finger;
-  int8_t temperature;   // body temp from wristband (°C)
+  uint8_t msgType;      // MSG_TYPE_VITALS
+  uint8_t bpm;          // 0..255
+  uint8_t spo2;         // 0..100
+  uint8_t finger;       // 0/1
   uint32_t timestamp;
 } espnow_vitals_t;
 
@@ -177,7 +176,7 @@ bool dhtReady = false;
 bool mpuReady = false;
 
 unsigned long lastLoRaSend = 0;
-int loraInterval = 10000;
+int loraInterval = 30000;
 int packetCount = 0;
 
 unsigned long lastDHTReading = 0;
@@ -219,12 +218,11 @@ struct WristbandStatus {
   uint8_t bpm;
   uint8_t spo2;
   bool fingerDetected;
-  float bodyTemp;        // ← ADD THIS
   unsigned long lastUpdate;
   bool connected;
   uint32_t lastMessageId;
   bool messageAcknowledged;
-} wristbandStatus = {0, 0, false, 0.0f, 0, false, 0, false};
+} wristbandStatus = {0,0,false,0,false,0,false};
 
 // Wristband MAC address (update if different)
 uint8_t wristbandMac[6] = {0x0C, 0x4E, 0xA0, 0x66, 0xB2, 0x78}; 
@@ -532,14 +530,17 @@ void checkEmergencyButton() {
 void handleEmergency() {
   Serial.println("\n████████ EMERGENCY MODE █████████");
   
+  // Play emergency audio FIRST before doing anything else
   if (audioReady) {
-    playAudioFile(EMERGENCY_TRIPLE_TAP);
+    playAudioFile(EMERGENCY_TRIPLE_TAP);  // Play 0010.mp3 for triple tap emergency
     Serial.println("✓ Playing emergency triple-tap audio");
-    delay(100);
+    delay(100);  // Small delay to ensure audio command is sent
   }
   
+  // Set the pending emergency flag so the main loop will send it
+  pendingEmergency = true;
+  
   SensorData s = readAllSensors();
-
   s.emergency = true;
   s.motion = motionData;
   
@@ -556,7 +557,7 @@ void handleEmergency() {
     Serial.println("⚠ LoRa not ready - emergency packet queued");
   }
   
-  delay(200);  // Give some time for audio to play
+  delay(500);  // Give some time for audio to play
 }
 
 // -------------------------- Setup & Loop --------------------------
@@ -868,12 +869,6 @@ delay(100);
   
   Serial.println("\n🚀 Edge node is now operational!");
   Serial.println("Listening for commands and monitoring sensors...\n");
-
-  if (loraReady) {
-    LoRa.receive();
-    Serial.println("✓ LoRa in receive mode");
-  }
-
 }
 
 // ==================== LOOP FUNCTION ====================
@@ -935,15 +930,19 @@ void loop() {
   if (millis() - lastNormalReading >= 10000) {
     lastNormalReading = millis();
     
+    // Read all sensors
     SensorData data = readAllSensors();
-    data.emergency = false;
+    data.emergency = false;  // Normal reading, not emergency
     data.motion = motionData;
     
+    // Display readings
     displayReadings(data);
+    
+    // Check for alerts
     checkAlerts(data);
     
-    // Send every 10 seconds (loraInterval = 10000, same as reading interval)
-    if (loraReady) {
+    // Send via LoRa if ready and interval passed
+    if (loraReady && (millis() - lastLoRaSend >= loraInterval)) {
       sendLoRaData(data);
       lastLoRaSend = millis();
     }
@@ -1400,7 +1399,7 @@ void checkAlerts(SensorData data) {
   }
 }
 void sendLoRaData(SensorData data) {
-  StaticJsonDocument<600> doc;
+  StaticJsonDocument<512> doc;
   doc["node"] = NODE_ID;
   doc["timestamp"] = data.timestamp;
   doc["temp"] = data.temperature;
@@ -1416,10 +1415,9 @@ void sendLoRaData(SensorData data) {
   doc["motion_gyro"] = data.motion.totalGyro;
   doc["bpm"] = wristbandStatus.connected ? wristbandStatus.bpm : 0;
   doc["spo2"] = wristbandStatus.connected ? wristbandStatus.spo2 : 0;
-  doc["body_temp"] = wristbandStatus.connected ? wristbandStatus.bodyTemp : 0.0f;
   doc["wristband_connected"] = wristbandStatus.connected ? 1 : 0;
   
-  char payload[600];
+  char payload[512];
   size_t n = serializeJson(doc, payload, sizeof(payload));
   
   if (!loraReady) { 
@@ -1430,7 +1428,6 @@ void sendLoRaData(SensorData data) {
   LoRa.beginPacket();
   LoRa.print(payload);
   LoRa.endPacket();
-  LoRa.receive(); 
   
   packetCount++;
   
@@ -1528,15 +1525,13 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
     wristbandStatus.bpm = vitals.bpm;
     wristbandStatus.spo2 = vitals.spo2;
     wristbandStatus.fingerDetected = (vitals.finger != 0);
-    wristbandStatus.bodyTemp = (float)vitals.temperature;
     wristbandStatus.lastUpdate = millis();
     wristbandStatus.connected = true;
-
-    Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s bodyTemp=%.1f°C ts=%lu\n",
-                  wristbandStatus.bpm,
-                  wristbandStatus.spo2,
-                  wristbandStatus.fingerDetected ? "YES" : "NO",
-                  wristbandStatus.bodyTemp,
+    
+    Serial.printf("[ESP-NOW RX] VITALS -> BPM=%u SpO2=%u finger=%s ts=%lu\n",
+                  wristbandStatus.bpm, 
+                  wristbandStatus.spo2, 
+                  wristbandStatus.fingerDetected ? "YES" : "NO", 
                   (unsigned long)vitals.timestamp);
                   
   } else if (msgType == MSG_TYPE_ACK) {
@@ -1614,7 +1609,6 @@ void checkWristbandConnection() {
     // Clear vitals data when disconnected
     wristbandStatus.bpm = 0;
     wristbandStatus.spo2 = 0;
-    wristbandStatus.bodyTemp = 0.0f;
     wristbandStatus.fingerDetected = false;
   }
 }
