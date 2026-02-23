@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
-function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSupervisor = false }) {
+function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSupervisor = false, onActivityLog }) {
     const [incidents, setIncidents] = useState([])
     const [loading, setLoading] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -17,13 +17,96 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
     const [error, setError] = useState(null)
     const [success, setSuccess] = useState(null)
 
+    // ── Multi-select state (admin only) ──────────────────────────────────────
+    const [selectedIds, setSelectedIds] = useState(new Set())
+    const [bulkLoading, setBulkLoading] = useState(false)
+
+    const allVisibleIds = incidents.map(i => i.id)
+    const allSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedIds.has(id))
+    const someSelected = selectedIds.size > 0
+
+    const toggleSelectAll = () => {
+        if (allSelected) {
+            setSelectedIds(new Set())
+        } else {
+            setSelectedIds(new Set(allVisibleIds))
+        }
+    }
+
+    const toggleSelectOne = (id) => {
+        setSelectedIds(prev => {
+            const next = new Set(prev)
+            if (next.has(id)) next.delete(id)
+            else next.add(id)
+            return next
+        })
+    }
+
+    // ── Bulk actions ─────────────────────────────────────────────────────────
+    const handleBulkResolve = async () => {
+        if (!window.confirm(`Resolve ${selectedIds.size} selected incident(s)?`)) return
+        setBulkLoading(true)
+        try {
+            const ids = [...selectedIds]
+            const { error } = await supabase
+                .from('incidents')
+                .update({ status: 'resolved' })
+                .in('id', ids)
+            if (error) throw error
+            setSuccess(`${ids.length} incident(s) marked as resolved`)
+            onActivityLog?.(
+                { id: null, full_name: 'N/A' },
+                'BULK_RESOLVE_INCIDENTS',
+                `Bulk-resolved ${ids.length} incident${ids.length !== 1 ? 's' : ''}`
+            )
+            setSelectedIds(new Set())
+            fetchIncidents()
+        } catch (err) {
+            setError('Bulk resolve failed: ' + err.message)
+        } finally {
+            setBulkLoading(false)
+        }
+    }
+
+    const handleBulkDelete = async () => {
+        if (!window.confirm(`Permanently delete ${selectedIds.size} selected incident(s)? This cannot be undone.`)) return
+        setBulkLoading(true)
+        try {
+            const ids = [...selectedIds]
+            const { error } = await supabase
+                .from('incidents')
+                .delete()
+                .in('id', ids)
+            if (error) throw error
+            setSuccess(`${ids.length} incident(s) deleted`)
+            onActivityLog?.(
+                { id: null, full_name: 'N/A' },
+                'BULK_DELETE_INCIDENTS',
+                `Bulk-deleted ${ids.length} incident${ids.length !== 1 ? 's' : ''}`
+            )
+            setSelectedIds(new Set())
+            fetchIncidents()
+        } catch (err) {
+            setError('Bulk delete failed: ' + err.message)
+        } finally {
+            setBulkLoading(false)
+        }
+    }
+
+    // ── Single-row actions ───────────────────────────────────────────────────
     const handleDelete = async (id) => {
-        if (!window.confirm("Are you sure you want to delete this incident report?")) return
+        if (!window.confirm('Are you sure you want to delete this incident report?')) return
         try {
             setLoading(true)
             const { error } = await supabase.from('incidents').delete().eq('id', id)
             if (error) throw error
             setSuccess('Incident deleted successfully')
+            onActivityLog?.(
+                { id: null, full_name: 'N/A' },
+                'DELETE_INCIDENT',
+                `Deleted incident record (ID: ${id})`
+            )
+            setSelectedIds(prev => { const n = new Set(prev); n.delete(id); return n })
             fetchIncidents()
         } catch (err) {
             setError('Failed to delete incident: ' + err.message)
@@ -37,6 +120,11 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
             const { error } = await supabase.from('incidents').update({ status: 'resolved' }).eq('id', id)
             if (error) throw error
             setSuccess('Incident marked as resolved')
+            onActivityLog?.(
+                { id: null, full_name: 'N/A' },
+                'RESOLVE_INCIDENT',
+                `Resolved incident record (ID: ${id})`
+            )
             fetchIncidents()
         } catch (err) {
             setError('Failed to resolve incident: ' + err.message)
@@ -77,9 +165,7 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
         try {
             const { data: { user } } = await supabase.auth.getUser()
 
-            const incidentData = {
-                ...formData
-            }
+            const incidentData = { ...formData }
 
             if (!editingId && !incidentData.reported_by) {
                 incidentData.reported_by = user.id
@@ -93,10 +179,16 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
             }
 
             const { error } = await query
-
             if (error) throw error
 
             setSuccess(editingId ? 'Incident updated successfully' : 'Incident reported successfully')
+            if (editingId) {
+                onActivityLog?.(
+                    { id: null, full_name: 'N/A' },
+                    'EDIT_INCIDENT',
+                    `Edited incident record (ID: ${editingId})`
+                )
+            }
             setIsModalOpen(false)
             setEditingId(null)
             setFormData({
@@ -134,8 +226,12 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
         }
     }
 
+    // Number of columns (for colSpan on empty/loading rows)
+    const colSpan = isAdmin ? 9 : isSupervisor ? 8 : 7
+
     return (
         <div className="space-y-6">
+            {/* ── Header ──────────────────────────────────────────────────── */}
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-2xl font-bold text-gray-900">Incident Reports</h2>
@@ -163,24 +259,76 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
                 </button>
             </div>
 
+            {/* ── Notifications ────────────────────────────────────────────── */}
             {error && (
-                <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200">
-                    {error}
-                </div>
+                <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200">{error}</div>
             )}
-
             {success && (
-                <div className="bg-green-50 text-green-700 p-4 rounded-lg border border-green-200">
-                    {success}
+                <div className="bg-green-50 text-green-700 p-4 rounded-lg border border-green-200">{success}</div>
+            )}
+
+            {/* ── Bulk Action Toolbar (admin + selection active) ───────────── */}
+            {isAdmin && someSelected && (
+                <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 shadow-sm">
+                    <span className="text-sm font-semibold text-blue-800">
+                        {selectedIds.size} record{selectedIds.size !== 1 ? 's' : ''} selected
+                    </span>
+                    <div className="flex items-center gap-2 ml-auto">
+                        <button
+                            onClick={handleBulkResolve}
+                            disabled={bulkLoading}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 transition-colors"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                            Resolve Selected
+                        </button>
+                        <button
+                            onClick={handleBulkDelete}
+                            disabled={bulkLoading}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 transition-colors"
+                        >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                            Delete Selected
+                        </button>
+                        <button
+                            onClick={() => setSelectedIds(new Set())}
+                            disabled={bulkLoading}
+                            className="px-3 py-1.5 text-sm font-medium text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                    {bulkLoading && (
+                        <svg className="w-4 h-4 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                        </svg>
+                    )}
                 </div>
             )}
 
-            {/* Incidents Table */}
+            {/* ── Incidents Table ──────────────────────────────────────────── */}
             <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse">
                         <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
+                                {/* Checkbox column — admin only */}
+                                {isAdmin && (
+                                    <th className="px-4 py-3 w-10">
+                                        <input
+                                            type="checkbox"
+                                            checked={allSelected}
+                                            onChange={toggleSelectAll}
+                                            className="w-4 h-4 rounded border-gray-300 text-blue-600 cursor-pointer"
+                                            title="Select all"
+                                        />
+                                    </th>
+                                )}
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Date</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Type</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Severity</th>
@@ -188,90 +336,129 @@ function SupervisorIncidentReports({ userId, userEmail, isAdmin = false, isSuper
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Reported By</th>
                                 <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
-                                {(isAdmin || isSupervisor) && <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>}
+                                {(isAdmin || isSupervisor) && (
+                                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
+                                )}
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
                             {loading ? (
                                 <tr>
-                                    <td colSpan="7" className="px-6 py-8 text-center text-gray-500">Loading incidents...</td>
+                                    <td colSpan={colSpan} className="px-6 py-8 text-center text-gray-500">Loading incidents...</td>
                                 </tr>
                             ) : incidents.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="px-6 py-8 text-center text-gray-500">No incidents reported yet.</td>
+                                    <td colSpan={colSpan} className="px-6 py-8 text-center text-gray-500">No incidents reported yet.</td>
                                 </tr>
                             ) : (
-                                incidents.map((incident) => (
-                                    <tr key={incident.id} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            {new Date(incident.date).toLocaleDateString()}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
-                                            {incident.incident_type === 'sos_emergency'
-                                                ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">🚨 SOS Emergency</span>
-                                                : incident.incident_type.replace(/_/g, ' ')}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${getSeverityColor(incident.severity)}`}>
-                                                {incident.severity}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            {incident.location}
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate" title={incident.description}>
-                                            {incident.description}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {incident.reporter?.full_name || 'Unknown'}
-                                        </td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${getStatusColor(incident.status)}`}>
-                                                {incident.status.replace('_', ' ')}
-                                            </span>
-                                        </td>
-                                        {(isAdmin || isSupervisor) && (
-                                            <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
-                                                {incident.status !== 'resolved' && (
-                                                    <button onClick={() => handleResolve(incident.id)} className="text-green-600 hover:text-green-800 font-medium text-sm">Resolve</button>
-                                                )}
-                                                {isAdmin && (
-                                                    <>
-                                                        <button onClick={() => {
-                                                            setEditingId(incident.id)
-                                                            setFormData({
-                                                                incident_type: incident.incident_type,
-                                                                severity: incident.severity,
-                                                                location: incident.location,
-                                                                description: incident.description,
-                                                                date: incident.date,
-                                                                status: incident.status
-                                                            })
-                                                            setIsModalOpen(true)
-                                                        }} className="text-blue-600 hover:text-blue-800 font-medium text-sm ml-2">Edit</button>
-                                                        <button onClick={() => handleDelete(incident.id)} className="text-red-600 hover:text-red-800 font-medium text-sm ml-2">Delete</button>
-                                                    </>
+                                incidents.map((incident) => {
+                                    const isSelected = selectedIds.has(incident.id)
+                                    return (
+                                        <tr
+                                            key={incident.id}
+                                            className={`transition-colors ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                                        >
+                                            {/* Checkbox (admin only) */}
+                                            {isAdmin && (
+                                                <td className="px-4 py-4">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => toggleSelectOne(incident.id)}
+                                                        className="w-4 h-4 rounded border-gray-300 text-blue-600 cursor-pointer"
+                                                    />
+                                                </td>
+                                            )}
+
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                <div>{new Date(incident.date).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                                                {incident.created_at && (
+                                                    <div className="text-xs text-gray-400 font-mono mt-0.5">
+                                                        {new Date(incident.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                                                    </div>
                                                 )}
                                             </td>
-                                        )}
-                                    </tr>
-                                ))
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 capitalize">
+                                                {incident.incident_type === 'sos_emergency'
+                                                    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">🚨 SOS Emergency</span>
+                                                    : incident.incident_type.replace(/_/g, ' ')}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${getSeverityColor(incident.severity)}`}>
+                                                    {incident.severity}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                {incident.location}
+                                            </td>
+                                            <td className="px-6 py-4 text-sm text-gray-900 max-w-xs truncate" title={incident.description}>
+                                                {incident.description}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                {incident.reporter?.full_name || 'Unknown'}
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className={`px-2 py-1 text-xs font-semibold rounded-full capitalize ${getStatusColor(incident.status)}`}>
+                                                    {incident.status.replace('_', ' ')}
+                                                </span>
+                                            </td>
+
+                                            {/* Per-row actions */}
+                                            {(isAdmin || isSupervisor) && (
+                                                <td className="px-6 py-4 text-right space-x-2 whitespace-nowrap">
+                                                    {incident.status !== 'resolved' && (
+                                                        <button
+                                                            onClick={() => handleResolve(incident.id)}
+                                                            className="text-green-600 hover:text-green-800 font-medium text-sm"
+                                                        >
+                                                            Resolve
+                                                        </button>
+                                                    )}
+                                                    {isAdmin && (
+                                                        <>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setEditingId(incident.id)
+                                                                    setFormData({
+                                                                        incident_type: incident.incident_type,
+                                                                        severity: incident.severity,
+                                                                        location: incident.location,
+                                                                        description: incident.description,
+                                                                        date: incident.date,
+                                                                        status: incident.status
+                                                                    })
+                                                                    setIsModalOpen(true)
+                                                                }}
+                                                                className="text-blue-600 hover:text-blue-800 font-medium text-sm ml-2"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                onClick={() => handleDelete(incident.id)}
+                                                                className="text-red-600 hover:text-red-800 font-medium text-sm ml-2"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </>
+                                                    )}
+                                                </td>
+                                            )}
+                                        </tr>
+                                    )
+                                })
                             )}
                         </tbody>
                     </table>
                 </div>
             </div>
 
-            {/* Report Modal */}
+            {/* ── Report / Edit Modal ──────────────────────────────────────── */}
             {isModalOpen && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
                         <div className="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
                             <h3 className="text-lg font-bold text-gray-900">{editingId ? 'Edit Incident' : 'Report New Incident'}</h3>
-                            <button
-                                onClick={() => setIsModalOpen(false)}
-                                className="text-gray-400 hover:text-gray-600"
-                            >
+                            <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                                 </svg>

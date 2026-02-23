@@ -703,7 +703,8 @@ function AdminDashboard({ onLogout }) {
                         activityLogs.map((log) => (
                           <tr key={log.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">
-                              {new Date(log.created_at).toLocaleString()}
+                              <div>{new Date(log.created_at).toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                              <div className="text-gray-400 font-mono">{new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</div>
                             </td>
                             <td className="px-6 py-4">
                               <div className="flex items-center">
@@ -717,9 +718,16 @@ function AdminDashboard({ onLogout }) {
                               <span className={`px-2 py-1 text-[10px] font-black rounded-full uppercase tracking-tighter ${log.action === 'DELETE_USER' ? 'bg-red-100 text-red-700' :
                                 log.action === 'RESTORE_USER' ? 'bg-green-100 text-green-700' :
                                   log.action === 'EDIT_PROFILE' ? 'bg-blue-100 text-blue-700' :
-                                    'bg-gray-100 text-gray-700'
+                                    log.action === 'DELETE_MESSAGE' ? 'bg-rose-100 text-rose-700' :
+                                      log.action === 'BULK_DELETE_MESSAGES' ? 'bg-rose-200 text-rose-800' :
+                                        log.action === 'RESOLVE_INCIDENT' ? 'bg-green-100 text-green-700' :
+                                          log.action === 'BULK_RESOLVE_INCIDENTS' ? 'bg-green-200 text-green-800' :
+                                            log.action === 'DELETE_INCIDENT' ? 'bg-orange-100 text-orange-700' :
+                                              log.action === 'BULK_DELETE_INCIDENTS' ? 'bg-orange-200 text-orange-800' :
+                                                log.action === 'EDIT_INCIDENT' ? 'bg-blue-100 text-blue-700' :
+                                                  'bg-gray-100 text-gray-700'
                                 }`}>
-                                {log.action?.replace('_', ' ')}
+                                {log.action?.replace(/_/g, ' ')}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-600 font-medium">
@@ -738,7 +746,7 @@ function AdminDashboard({ onLogout }) {
             </div>
           )}
           {activePage === 'incidents' && (
-            <SupervisorIncidentReports isAdmin={true} userId={user?.id} />
+            <SupervisorIncidentReports isAdmin={true} userId={user?.id} onActivityLog={logAdminActivity} />
           )}
         </main>
         <Footer />
@@ -762,7 +770,7 @@ function AdminDashboard({ onLogout }) {
       />
 
       {/* Chat Functionality */}
-      {user && <ChatFloatingButton currentUser={user} />}
+      {user && <ChatFloatingButton currentUser={user} onActivityLog={logAdminActivity} />}
 
       {/* Emergency SOS Popup Alert */}
       <EmergencyAlertModal
