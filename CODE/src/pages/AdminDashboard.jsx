@@ -725,7 +725,9 @@ function AdminDashboard({ onLogout }) {
                                             log.action === 'DELETE_INCIDENT' ? 'bg-orange-100 text-orange-700' :
                                               log.action === 'BULK_DELETE_INCIDENTS' ? 'bg-orange-200 text-orange-800' :
                                                 log.action === 'EDIT_INCIDENT' ? 'bg-blue-100 text-blue-700' :
-                                                  'bg-gray-100 text-gray-700'
+                                                  log.action === 'ACCEPT_LEAVE' ? 'bg-green-100 text-green-700' :
+                                                    log.action === 'REJECT_LEAVE' ? 'bg-red-100 text-red-700' :
+                                                      'bg-gray-100 text-gray-700'
                                 }`}>
                                 {log.action?.replace(/_/g, ' ')}
                               </span>

@@ -7,6 +7,8 @@ function SupervisorLeaveManagement() {
     const [filter, setFilter] = useState('all') // all, pending, accepted, rejected
     const [confirmDialog, setConfirmDialog] = useState({ show: false, applicationId: null, action: null, minerName: null })
     const [showSuccessMessage, setShowSuccessMessage] = useState(false)
+    const [currentUser, setCurrentUser] = useState(null)
+    const [currentUserProfile, setCurrentUserProfile] = useState(null)
 
     // Tooltip state
     const [tooltip, setTooltip] = useState({ visible: false, x: 0, y: 0, reason: '' })
@@ -17,6 +19,7 @@ function SupervisorLeaveManagement() {
 
     useEffect(() => {
         fetchAllLeaveApplications()
+        fetchCurrentUser()
 
         // Subscribe to real-time changes
         const channel = supabase
@@ -42,6 +45,47 @@ function SupervisorLeaveManagement() {
             if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current)
         }
     }, [])
+
+    const fetchCurrentUser = async () => {
+        try {
+            const { data: { user } } = await supabase.auth.getUser()
+            if (user) {
+                setCurrentUser(user)
+                const { data: profile } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('id', user.id)
+                    .single()
+                if (profile) {
+                    setCurrentUserProfile(profile)
+                }
+            }
+        } catch (error) {
+            console.error('Error fetching current user:', error)
+        }
+    }
+
+    const logActivity = async (application, action) => {
+        try {
+            const starts = new Date(application.start_date)
+            const ends = new Date(application.end_date)
+            const days = Math.ceil((ends - starts) / (1000 * 60 * 60 * 24)) + 1
+            const actionLabel = action === 'accepted' ? 'ACCEPT_LEAVE' : 'REJECT_LEAVE'
+
+            await supabase
+                .from('admin_activity_logs')
+                .insert({
+                    admin_id: currentUser?.id,
+                    admin_name: currentUserProfile?.full_name || currentUser?.email || 'Supervisor',
+                    target_user_id: application.user_id,
+                    target_user_name: application.users?.full_name || 'Miner',
+                    action: actionLabel,
+                    details: `${action === 'accepted' ? 'Accepted' : 'Rejected'} ${application.leave_type} leave from ${formatDate(application.start_date)} to ${formatDate(application.end_date)} (${days} days)`
+                })
+        } catch (error) {
+            console.error('Error logging activity:', error)
+        }
+    }
 
     const fetchAllLeaveApplications = async () => {
         setLoading(true)
@@ -109,6 +153,13 @@ function SupervisorLeaveManagement() {
             } else {
                 setShowSuccessMessage(true)
                 setTimeout(() => setShowSuccessMessage(false), 3000)
+
+                // Log the activity
+                const application = allApplications.find(app => app.id === applicationId)
+                if (application) {
+                    logActivity(application, action)
+                }
+
                 fetchAllLeaveApplications()
             }
         } catch (error) {
@@ -158,7 +209,7 @@ function SupervisorLeaveManagement() {
         if (tooltipTimeout.current) clearTimeout(tooltipTimeout.current)
         const rect = e.currentTarget.getBoundingClientRect()
         const targetX = rect.left + rect.width / 2
-        const targetY = rect.top - 12
+        const targetY = rect.top - 10
         tooltipTimeout.current = setTimeout(() => {
             setTooltip({
                 visible: true,
@@ -174,7 +225,7 @@ function SupervisorLeaveManagement() {
         setTooltip(prev => ({
             ...prev,
             x: e.clientX,
-            y: e.clientY - 48
+            y: e.clientY - 10
         }))
     }
 
@@ -477,7 +528,7 @@ function SupervisorLeaveManagement() {
                         position: 'fixed',
                         left: tooltip.x,
                         top: tooltip.y,
-                        transform: 'translateX(-50%)',
+                        transform: 'translate(-50%, -100%)',
                         zIndex: 9999,
                         pointerEvents: 'none',
                         animation: 'tooltipFadeIn 0.15s ease',
