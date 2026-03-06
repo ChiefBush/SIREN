@@ -30,10 +30,10 @@ SIREN integrates environmental sensing, motion intelligence, LoRa-based mesh com
 
 ## Contributors
 
-**Ishita Dhiman** — Backend/Frontend, Research, testing, and documentation 
-**Ishita Dham** — **Scrum Master** Backend/Frontend, Research, and Designer
-**Shishir Dwivedi** — system architecture, ML pipeline, hardware integration  
-**Arul Gupta** — Hardware design and embedded systems (foundational contributions)  
+- **Ishita Dhiman** — Backend/Frontend, Research, testing, and documentation 
+- **Ishita Dham** — **Scrum Master** Backend/Frontend, Research, and Designer
+- **Shishir Dwivedi** — system architecture, ML pipeline, hardware integration  
+- **Arul Gupta** — Hardware design and embedded systems (foundational contributions)  
 
 Mentored by **Dr. Nitasha Hasteer**, **Dr. Sanjay Sinha**, and **Dr. Kamlesh Pandey** — Amity University, Noida.
 
