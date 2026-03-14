@@ -18,7 +18,7 @@ export function usePredictions(filterUserId = null) {
             try {
                 let query = supabase
                     .from('ml_predictions')
-                    .select('*, user_profiles(full_name)')
+                    .select('*, users(full_name)')
                     .order('created_at', { ascending: false })
                     .limit(50) // Get the latest 50
 
@@ -75,7 +75,7 @@ export function usePredictions(filterUserId = null) {
                 if (newPrediction.miner_id) {
                     try {
                         const { data } = await supabase
-                            .from('user_profiles')
+                            .from('users')
                             .select('full_name')
                             .eq('id', newPrediction.miner_id)
                             .single()
@@ -85,7 +85,7 @@ export function usePredictions(filterUserId = null) {
 
                 const predictionWithUser = {
                     ...newPrediction,
-                    user_profiles: { full_name: fullName }
+                    users: { full_name: fullName }
                 }
 
                 setPredictions(prev => [predictionWithUser, ...prev].slice(0, 50))
