@@ -18,25 +18,18 @@ export default function WatchMessageDisplay({ userId }) {
                 {
                     event: 'INSERT',
                     schema: 'public',
-                    table: 'messages',
-                    filter: `receiver_id=eq.${userId}`
+                    table: 'chat_messages',
+                    filter: `user_id=eq.${userId}`
                 },
                 async (payload) => {
-                    console.log('New message received:', payload)
-                    // Fetch sender details
-                    const { data: sender } = await supabase
-                        .from('users')
-                        .select('full_name, role')
-                        .eq('id', payload.new.sender_id)
-                        .single()
+                    if (payload.new.sender_role === 'miner') return; // Ignore messages sent by miner
 
+                    console.log('New message received:', payload)
+                    
                     setLatestMessage({
                         ...payload.new,
-                        sender_name: sender?.full_name || (sender?.role === 'admin' ? 'Admin' : 'Supervisor')
+                        sender_name: payload.new.sender_role === 'admin' ? 'Admin' : 'Supervisor'
                     })
-
-                    // Auto-dismiss after 30 seconds if not interacted? 
-                    // Better to let user dismiss manually to ensure they saw it.
                 }
             )
             .subscribe()
@@ -50,14 +43,12 @@ export default function WatchMessageDisplay({ userId }) {
         try {
             // Get the most recent UNREAD message
             const { data, error } = await supabase
-                .from('messages')
-                .select(`
-                *,
-                sender:users!sender_id(full_name, role)
-            `)
-                .eq('receiver_id', userId)
-                .eq('is_read', false)
-                .order('created_at', { ascending: false })
+                .from('chat_messages')
+                .select('*')
+                .eq('user_id', userId)
+                .neq('sender_role', 'miner')
+                .eq('delivery_status', 'sent')
+                .order('timestamp', { ascending: false })
                 .limit(1)
                 .single()
 
@@ -69,7 +60,7 @@ export default function WatchMessageDisplay({ userId }) {
             if (data) {
                 setLatestMessage({
                     ...data,
-                    sender_name: data.sender?.full_name || (data.sender?.role === 'admin' ? 'Admin' : 'Supervisor')
+                    sender_name: data.sender_role === 'admin' ? 'Admin' : 'Supervisor'
                 })
             }
         } catch (err) {
@@ -83,8 +74,8 @@ export default function WatchMessageDisplay({ userId }) {
         // Mark as read in DB
         try {
             await supabase
-                .from('messages')
-                .update({ is_read: true })
+                .from('chat_messages')
+                .update({ delivery_status: 'read' })
                 .eq('id', latestMessage.id)
         } catch (err) {
             console.error('Error marking message as read', err)
@@ -105,10 +96,10 @@ export default function WatchMessageDisplay({ userId }) {
                                 Message from {latestMessage.sender_name}
                             </span>
                             <p className="text-gray-900 text-lg font-bold leading-snug">
-                                {latestMessage.content}
+                                {latestMessage.message_text}
                             </p>
                             <p className="text-gray-500 text-xs mt-2">
-                                {new Date(latestMessage.created_at).toLocaleTimeString()}
+                                {new Date(latestMessage.timestamp).toLocaleTimeString()}
                             </p>
                         </div>
                     </div>

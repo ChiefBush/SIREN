@@ -71,6 +71,7 @@ src/
 
 ## Documentation
 
+- `docs/MASTER_DOCUMENTATION.md` - **Comprehensive Project Guide**
 - `docs/SUPABASE_SCHEMA.sql` - Complete database schema
 - `docs/DATABASE_SCHEMA.md` - Database documentation
 - `docs/API_DESIGN.md` - API documentation
