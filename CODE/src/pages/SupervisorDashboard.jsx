@@ -30,8 +30,9 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const lastWarningRowIdRef = useRef(null) // tracks last sensor row checked for warnings to prevent duplicate incidents
 
   // ML Predictions
-  const { predictions } = usePredictions()
+  const { predictions, latestPrediction } = usePredictions()
   const criticalPredictions = predictions.filter(p => p.risk_level === 'high' || p.risk_level === 'critical')
+  const lastMLPredictionIdRef = useRef(null)
 
   // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
   const { sensorData, sensorHistory, getSensorStatus } = useSensorData(null, user?.email)
@@ -192,6 +193,37 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       }, ...prev]
     })
   }
+
+  const showMLNotification = (prediction) => {
+    const notificationId = `ml-${prediction.id}`
+    setNotifications(prev => {
+      if (prev.some(n => n.id === notificationId)) return prev
+
+      setTimeout(() => {
+        setNotifications(current => current.filter(n => n.id !== notificationId))
+      }, 15000)
+
+      return [{
+        id: notificationId,
+        type: 'ml-warning',
+        message: `🤖 AI WARNING: ${prediction.prediction_type.replace(/_/g, ' ')} detected remotely. Risk Level: ${prediction.risk_level.toUpperCase()}`,
+        timestamp: new Date()
+      }, ...prev]
+    })
+  }
+
+  useEffect(() => {
+    if (latestPrediction) {
+      if (!lastMLPredictionIdRef.current) {
+         lastMLPredictionIdRef.current = latestPrediction.id
+      } else if (lastMLPredictionIdRef.current !== latestPrediction.id) {
+         lastMLPredictionIdRef.current = latestPrediction.id
+         if (latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') {
+            showMLNotification(latestPrediction)
+         }
+      }
+    }
+  }, [latestPrediction])
 
   const handleNewLeaveApplication = async (application) => {
     try {
@@ -546,7 +578,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
     { id: 'dashboard', label: 'Dashboard', icon: null },
     { id: 'incidents', label: 'Incident Reports', icon: null },
     { id: 'leave', label: 'Leave Management', icon: null },
-    { id: 'miner-logs', label: 'Miner Logs', icon: null }
+    { id: 'miner-logs', label: 'Miner Logs', icon: null },
+    { id: 'prediction-history', label: 'ML Analytics', icon: null }
   ]
 
   return (
@@ -626,13 +659,18 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                 onClick={() => {
                   if (notification.type === 'emergency') {
                     setActivePage('incidents')
+                  } else if (notification.type === 'ml-warning') {
+                    setActivePage('prediction-history')
                   } else {
                     setActivePage('leave')
                   }
                   removeNotification(notification.id)
                 }}
-                className={`text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer ${notification.type === 'emergency'
-                  ? 'bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-400'
+                className={`text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 transform transition-all duration-300 ease-in-out cursor-pointer ${
+                  notification.type === 'emergency'
+                    ? 'bg-red-600 hover:bg-red-700 animate-pulse border-2 border-red-400'
+                  : notification.type === 'ml-warning'
+                    ? 'bg-orange-600 hover:bg-orange-700 animate-pulse border-2 border-orange-400'
                   : 'bg-blue-600 hover:bg-blue-700'
                   }`}
               >
@@ -641,6 +679,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                     <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                     </svg>
+                  ) : notification.type === 'ml-warning' ? (
+                    <span className="text-xl">🤖</span>
                   ) : (
                     <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
@@ -649,16 +689,19 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                 </div>
                 <div className="flex-1">
                   <p className="font-semibold">
-                    {notification.type === 'emergency' ? '🚨 Emergency SOS Alert' : 'New Leave Application'}
+                    {notification.type === 'emergency' ? '🚨 Emergency SOS Alert' : notification.type === 'ml-warning' ? '🤖 AI Early Warning' : 'New Leave Application'}
                   </p>
                   <p className="text-sm opacity-90">{notification.message}</p>
-                  {notification.details && (
+                  {notification.details && notification.type !== 'ml-warning' && (
                     <p className="text-xs opacity-75 mt-1">
                       {new Date(notification.details.start_date).toLocaleDateString()} - {new Date(notification.details.end_date).toLocaleDateString()}
                     </p>
                   )}
                   {notification.type === 'emergency' && (
                     <p className="text-xs opacity-75 mt-1 font-bold">Click to view Incident Reports →</p>
+                  )}
+                  {notification.type === 'ml-warning' && (
+                    <p className="text-xs opacity-75 mt-1 font-bold">Click to view ML Analytics →</p>
                   )}
                 </div>
                 <button
@@ -755,7 +798,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                           </div>
                           <div>
                             <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')} Warning</h4>
-                            <p className="text-xs text-gray-500 font-medium">Miner: {pred.user_profiles?.full_name || 'Global Area'}</p>
+                            <p className="text-xs text-gray-500 font-medium">Miner: {pred.users?.full_name || 'Global Area'}</p>
                           </div>
                         </div>
                         <div className="text-right">
@@ -871,7 +914,69 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
           {/* Miner Logs Page */}
           {activePage === 'miner-logs' && (
-            <MinerLogs />
+            <MinerLogs user={user} />
+          )}
+
+          {activePage === 'prediction-history' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">ML Analytics History</h2>
+                <p className="text-gray-600 mt-1">Historical log of AI early warnings relevant to your team.</p>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-4 font-semibold">Timestamp</th>
+                        <th className="px-6 py-4 font-semibold">Risk Level</th>
+                        <th className="px-6 py-4 font-semibold">Prediction Type</th>
+                        <th className="px-6 py-4 font-semibold">Location / UID</th>
+                        <th className="px-6 py-4 font-semibold">Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {predictions.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-6 py-8 text-center text-gray-500 italic">
+                            No ML predictions recorded yet for your team.
+                          </td>
+                        </tr>
+                      ) : (
+                        predictions.map((pred) => (
+                          <tr key={pred.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">
+                              <div>{new Date(pred.created_at).toLocaleDateString()}</div>
+                              <div className="text-gray-400 font-mono">{new Date(pred.created_at).toLocaleTimeString()}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-1 text-xs font-bold rounded-full uppercase ${
+                                pred.risk_level === 'critical' ? 'bg-red-100 text-red-700' :
+                                pred.risk_level === 'high' ? 'bg-orange-100 text-orange-700' :
+                                pred.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                {pred.risk_level}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold capitalize text-gray-800">
+                              {pred.prediction_type.replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600 font-mono">
+                               {pred.users?.full_name || pred.details?.hardware_node_id || pred.miner_id?.slice(0,8) || 'Global Area'}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-gray-700">
+                               {(pred.risk_score * 100).toFixed(0)}%
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           )}
         </main>
         <Footer />

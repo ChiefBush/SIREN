@@ -95,10 +95,10 @@ const AboutUs = () => {
                     </div>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
-                        <TeamMember name="Arul Gupta" role="Lead Systems" image={d1} />
-                        <TeamMember name="Ishita Dham" role="Frontend Architect" image={d2} />
-                        <TeamMember name="Ishita Dhiman" role="Backend Specialist" image={d3} />
-                        <TeamMember name="Shishir Dwivedi" role="IoT Integration" image={d4} />
+                        <TeamMember name="Arul Gupta" role="System Developer" image={d1} />
+                        <TeamMember name="Ishita Dham" role="Software Developer" image={d2} />
+                        <TeamMember name="Ishita Dhiman" role="Application Developer" image={d3} />
+                        <TeamMember name="Shishir Dwivedi" role="Platform Developer" image={d4} />
                     </div>
 
                     <div className="bg-gray-50 p-8 rounded-3xl border border-gray-100">

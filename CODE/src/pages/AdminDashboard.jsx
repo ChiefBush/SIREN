@@ -32,8 +32,9 @@ function AdminDashboard({ onLogout }) {
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
 
   // ML Predictions
-  const { predictions, loading: predictionsLoading } = usePredictions()
+  const { predictions, latestPrediction, loading: predictionsLoading } = usePredictions()
   const criticalPredictions = predictions.filter(p => p.risk_level === 'high' || p.risk_level === 'critical')
+  const lastMLPredictionIdRef = useRef(null)
 
   const menuRef = useRef(null)
 
@@ -68,11 +69,38 @@ function AdminDashboard({ onLogout }) {
   const showEmergencyNotification = () => {
     const notifId = `emergency-${Date.now()}`
     setEmergencyNotifications(prev => {
-      if (prev.length > 0) return prev // don't stack
+      if (prev.some(n => n.type === 'emergency')) return prev // don't stack
       setTimeout(() => setEmergencyNotifications(cur => cur.filter(n => n.id !== notifId)), 30000)
-      return [{ id: notifId, message: '🚨 Emergency SOS triggered — helmet button pressed or fall detected!', timestamp: new Date() }]
+      return [{ id: notifId, message: '🚨 Emergency SOS triggered — helmet button pressed or fall detected!', timestamp: new Date(), type: 'emergency' }, ...prev]
     })
   }
+
+  const showMLNotification = (prediction) => {
+    const notifId = `ml-${prediction.id}`
+    setEmergencyNotifications(prev => {
+      if (prev.some(n => n.id === notifId)) return prev
+      setTimeout(() => setEmergencyNotifications(cur => cur.filter(n => n.id !== notifId)), 15000)
+      return [{ 
+        id: notifId, 
+        message: `🤖 AI WARNING: ${prediction.prediction_type.replace(/_/g, ' ')} detected remotely. Risk Level: ${prediction.risk_level.toUpperCase()}`,
+        timestamp: new Date(),
+        type: 'ml'
+      }, ...prev]
+    })
+  }
+
+  useEffect(() => {
+    if (latestPrediction) {
+      if (!lastMLPredictionIdRef.current) {
+         lastMLPredictionIdRef.current = latestPrediction.id
+      } else if (lastMLPredictionIdRef.current !== latestPrediction.id) {
+         lastMLPredictionIdRef.current = latestPrediction.id
+         if (latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') {
+            showMLNotification(latestPrediction)
+         }
+      }
+    }
+  }, [latestPrediction])
 
   useEffect(() => {
     fetchCurrentUser()
@@ -370,7 +398,8 @@ function AdminDashboard({ onLogout }) {
   const menuItems = [
     { id: 'dashboard', label: 'User Logs', icon: null },
     { id: 'activity', label: 'Activity Logs', icon: null },
-    { id: 'incidents', label: 'Incident Reports', icon: null }
+    { id: 'incidents', label: 'Incident Reports', icon: null },
+    { id: 'prediction-history', label: 'ML Analytics History', icon: null }
   ]
 
   const getRoleBadgeColor = (role) => {
@@ -441,28 +470,6 @@ function AdminDashboard({ onLogout }) {
                   EMERGENCY ACTIVE
                 </span>
               )}
-              
-              {/* TEST PREDICTION BUTTON */}
-              <button
-                onClick={async () => {
-                  try {
-                    const { error } = await supabase.from('ml_predictions').insert({
-                      prediction_type: 'gas_leak',
-                      risk_score: 0.95,
-                      risk_level: 'critical',
-                      details: { source: 'dashboard_test_button' }
-                    })
-                    if (error) alert('Failed to insert test prediction: ' + error.message)
-                  } catch (e) {
-                    alert('Error: ' + e.message)
-                  }
-                }}
-                className="px-3 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 text-xs font-bold rounded-md transition-colors border border-orange-200 flex items-center gap-1"
-                title="Simulate an ML Model Alert"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                Test ML Alert
-              </button>
 
               <button
                 onClick={() => setIsProfileOpen(true)}
@@ -486,20 +493,24 @@ function AdminDashboard({ onLogout }) {
               <div
                 key={notif.id}
                 onClick={() => {
-                  setActivePage('incidents')
+                  setActivePage(notif.type === 'ml' ? 'prediction-history' : 'incidents')
                   setEmergencyNotifications(prev => prev.filter(n => n.id !== notif.id))
                 }}
-                className="bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 cursor-pointer animate-pulse border-2 border-red-400 transition-all"
+                className={`${notif.type === 'ml' ? 'bg-orange-600 hover:bg-orange-700 border-orange-400' : 'bg-red-600 hover:bg-red-700 border-red-400'} text-white rounded-lg shadow-lg p-4 flex items-start space-x-3 cursor-pointer animate-pulse border-2 transition-all`}
               >
                 <div className="flex-shrink-0 mt-0.5">
-                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
+                  {notif.type === 'ml' ? (
+                     <span className="text-xl">🤖</span>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                  )}
                 </div>
                 <div className="flex-1">
-                  <p className="font-bold">🚨 Emergency SOS Alert</p>
+                  <p className="font-bold">{notif.type === 'ml' ? '🤖 AI Early Warning' : '🚨 Emergency SOS Alert'}</p>
                   <p className="text-sm opacity-90">{notif.message}</p>
-                  <p className="text-xs opacity-75 mt-1 font-bold">Click to view Incident Reports →</p>
+                  <p className="text-xs opacity-75 mt-1 font-bold">{notif.type === 'ml' ? 'Click to view ML Analytics →' : 'Click to view Incident Reports →'}</p>
                 </div>
                 <button
                   onClick={(e) => { e.stopPropagation(); setEmergencyNotifications(prev => prev.filter(n => n.id !== notif.id)) }}
@@ -552,7 +563,7 @@ function AdminDashboard({ onLogout }) {
                           </div>
                           <div>
                             <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')} Warning</h4>
-                            <p className="text-xs text-gray-500 font-medium">Miner: {pred.user_profiles?.full_name || 'Global Area'}</p>
+                            <p className="text-xs text-gray-500 font-medium">Miner: {pred.users?.full_name || 'Global Area'}</p>
                           </div>
                         </div>
                         <div className="text-right">
@@ -814,6 +825,67 @@ function AdminDashboard({ onLogout }) {
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
                               {log.details}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+          {activePage === 'prediction-history' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-3xl font-bold text-gray-900">ML Analytics History</h2>
+                <p className="text-gray-600 mt-1">Audit trail of AI-driven early warnings and predictions</p>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
+                        <th className="px-6 py-4 font-semibold">Timestamp</th>
+                        <th className="px-6 py-4 font-semibold">Risk Level</th>
+                        <th className="px-6 py-4 font-semibold">Prediction Type</th>
+                        <th className="px-6 py-4 font-semibold">Location / UID</th>
+                        <th className="px-6 py-4 font-semibold">Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {predictions.length === 0 ? (
+                        <tr>
+                          <td colSpan="5" className="px-6 py-8 text-center text-gray-500 italic">
+                            No ML predictions recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        predictions.map((pred) => (
+                          <tr key={pred.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-6 py-4 text-xs text-gray-500 font-medium whitespace-nowrap">
+                              <div>{new Date(pred.created_at).toLocaleDateString()}</div>
+                              <div className="text-gray-400 font-mono">{new Date(pred.created_at).toLocaleTimeString()}</div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className={`px-2 py-1 text-xs font-bold rounded-full uppercase ${
+                                pred.risk_level === 'critical' ? 'bg-red-100 text-red-700' :
+                                pred.risk_level === 'high' ? 'bg-orange-100 text-orange-700' :
+                                pred.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-green-100 text-green-700'
+                              }`}>
+                                {pred.risk_level}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm font-semibold capitalize text-gray-800">
+                              {pred.prediction_type.replace(/_/g, ' ')}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600 font-mono">
+                               {pred.users?.full_name || pred.details?.hardware_node_id || pred.miner_id?.slice(0,8) || 'Global Area'}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-bold text-gray-700">
+                               {(pred.risk_score * 100).toFixed(0)}%
                             </td>
                           </tr>
                         ))
