@@ -7,6 +7,7 @@ import ChatFloatingButton from '../components/ChatFloatingButton'
 import Footer from '../components/Footer'
 import EmergencyAlertModal from '../components/EmergencyAlertModal'
 import SupervisorIncidentReports from './SupervisorIncidentReports'
+import { usePredictions } from '../hooks/usePredictions'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -29,6 +30,10 @@ function AdminDashboard({ onLogout }) {
   const [emergencyNotifications, setEmergencyNotifications] = useState([])
   const lastEmergencyIncidentRef = useRef(null)
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
+
+  // ML Predictions
+  const { predictions, loading: predictionsLoading } = usePredictions()
+  const criticalPredictions = predictions.filter(p => p.risk_level === 'high' || p.risk_level === 'critical')
 
   const menuRef = useRef(null)
 
@@ -436,6 +441,29 @@ function AdminDashboard({ onLogout }) {
                   EMERGENCY ACTIVE
                 </span>
               )}
+              
+              {/* TEST PREDICTION BUTTON */}
+              <button
+                onClick={async () => {
+                  try {
+                    const { error } = await supabase.from('ml_predictions').insert({
+                      prediction_type: 'gas_leak',
+                      risk_score: 0.95,
+                      risk_level: 'critical',
+                      details: { source: 'dashboard_test_button' }
+                    })
+                    if (error) alert('Failed to insert test prediction: ' + error.message)
+                  } catch (e) {
+                    alert('Error: ' + e.message)
+                  }
+                }}
+                className="px-3 py-1.5 bg-orange-100 text-orange-700 hover:bg-orange-200 text-xs font-bold rounded-md transition-colors border border-orange-200 flex items-center gap-1"
+                title="Simulate an ML Model Alert"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                Test ML Alert
+              </button>
+
               <button
                 onClick={() => setIsProfileOpen(true)}
                 className="flex items-center space-x-2 text-gray-700 hover:text-blue-600 transition-colors"
@@ -492,8 +520,57 @@ function AdminDashboard({ onLogout }) {
             <div className="space-y-6">
               {/* Page Title */}
               <div>
-                <h2 className="text-3xl font-bold text-gray-900">User Logs</h2>
-                <p className="text-gray-600 mt-1">Manage and monitor system users and their roles</p>
+                <h2 className="text-3xl font-bold text-gray-900">Dashboard Overview</h2>
+                <p className="text-gray-600 mt-1">Manage and monitor system users, roles, and real-time alerts</p>
+              </div>
+
+              {/* Early Warnings Widget */}
+              {(criticalPredictions.length > 0) && (
+                <div className="bg-white rounded-lg shadow-md border border-orange-200 overflow-hidden mb-8">
+                  <div className="bg-gradient-to-r from-orange-50 to-orange-100 px-6 py-4 border-b border-orange-200 flex justify-between items-center">
+                    <div>
+                      <h3 className="text-lg font-bold text-orange-900 flex items-center gap-2">
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        ML Early Warnings
+                      </h3>
+                      <p className="text-sm text-orange-700">Real-time predictive alerts from the AI model.</p>
+                    </div>
+                    <span className="bg-orange-600 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-sm">
+                      {criticalPredictions.length} Active
+                    </span>
+                  </div>
+                  <div className="divide-y divide-orange-100">
+                    {criticalPredictions.slice(0, 5).map(pred => (
+                      <div key={pred.id} className="p-4 hover:bg-orange-50/50 transition-colors flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-lg shadow-sm
+                            ${pred.risk_level === 'critical' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-orange-100 text-orange-700 border border-orange-200'}
+                          `}>
+                            !
+                          </div>
+                          <div>
+                            <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')} Warning</h4>
+                            <p className="text-xs text-gray-500 font-medium">Miner: {pred.user_profiles?.full_name || 'Global Area'}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className={`text-sm font-bold ${pred.risk_level === 'critical' ? 'text-red-600' : 'text-orange-600'}`}>
+                            {(pred.risk_score * 100).toFixed(0)}% Risk
+                          </div>
+                          <div className="text-xs text-gray-400 font-medium">
+                            {new Date(pred.created_at).toLocaleTimeString()}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mt-8">
+                  <h3 className="text-xl font-bold text-gray-900">User Logs</h3>
               </div>
 
               {/* Filter Controls */}
