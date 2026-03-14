@@ -198,12 +198,13 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
         e.preventDefault()
         if (!message.trim() || !selectedMiner) return
 
+        const msgText = message.trim()
         setLoading(true)
         try {
             const newMessage = {
                 user_id: selectedMiner.id,
                 sender_role: senderRole,
-                message_text: message.trim(),
+                message_text: msgText,
                 delivery_status: 'sent'
             }
 
@@ -220,37 +221,46 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                 return
             }
 
-            let apiSuccess = false
+            // Show message immediately in chat — don't wait for central node
+            setMessages(prev => [...prev, { ...data, api_success: null }])
+            setMessage('')
+            setLoading(false)
+
+            // Fire HTTP call to central node in the background (non-blocking)
+            const savedMsgId = data.id
             try {
                 const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.2'
                 const controller = new AbortController()
-                const timeoutId = setTimeout(() => controller.abort(), 5000)
+                // ESP32 takes 9-12s to send LoRa retries before it returns HTTP 200. Give it 30s.
+                const timeoutId = setTimeout(() => controller.abort(), 30000)
 
                 const response = await fetch(`${centralNodeUrl}/send`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ miner_id: selectedMiner.id, message: message.trim() }),
+                    body: JSON.stringify({ miner_id: selectedMiner.id, message: msgText }),
                     signal: controller.signal,
                 })
                 clearTimeout(timeoutId)
 
                 if (response.ok) {
-                    apiSuccess = true
                     console.log('[SIREN] Message delivered to central node successfully.')
+                    setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: true } : m))
                 } else {
                     console.error('[SIREN] Central node returned error:', response.status)
+                    setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))
                 }
             } catch (apiError) {
-                console.error('[SIREN] Error sending to central node:', apiError)
-                console.warn('[SIREN] Central node unreachable — message saved to DB only.')
+                if (apiError.name === 'AbortError') {
+                    console.warn('[SIREN] HTTP request to central node timed out after 30s (likely still delivered via LoRa).')
+                    // Keep api_success as null or don't set it to false, so it doesn't show the red error icon wrongly
+                } else {
+                    console.error('[SIREN] Error sending to central node:', apiError)
+                    setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))
+                }
             }
-
-            setMessages(prev => [...prev, { ...data, api_success: apiSuccess }])
-            setMessage('')
         } catch (error) {
             console.error('Error sending message:', error)
             alert(`Error saving message: ${error?.message || JSON.stringify(error)}`)
-        } finally {
             setLoading(false)
         }
     }
@@ -400,10 +410,15 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                                                             <span>{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                             {isMine && (
                                                                 <span className="ml-1" title={
-                                                                    msg.api_success === false ? 'Failed to send to watch'
-                                                                        : msg.delivery_status === 'read' ? 'Read' : 'Sent to watch'
+                                                                    msg.api_success === null ? 'Sending to watch...'
+                                                                        : msg.api_success === false ? 'Failed to send to watch'
+                                                                            : msg.delivery_status === 'read' ? 'Read' : 'Sent to watch'
                                                                 }>
-                                                                    {msg.api_success === false ? (
+                                                                    {msg.api_success === null ? (
+                                                                        <svg className="w-3.5 h-3.5 text-gray-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                        </svg>
+                                                                    ) : msg.api_success === false ? (
                                                                         <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                                         </svg>
