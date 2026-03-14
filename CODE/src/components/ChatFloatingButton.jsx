@@ -222,17 +222,26 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
 
             let apiSuccess = false
             try {
-                const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://192.168.1.100'
-                await fetch(`${centralNodeUrl}/send`, {
+                const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.2'
+                const controller = new AbortController()
+                const timeoutId = setTimeout(() => controller.abort(), 5000)
+
+                const response = await fetch(`${centralNodeUrl}/send`, {
                     method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'text/plain' },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ miner_id: selectedMiner.id, message: message.trim() }),
+                    signal: controller.signal,
                 })
-                apiSuccess = true
-                console.log('[SIREN] Message packet sent to central node.')
+                clearTimeout(timeoutId)
+
+                if (response.ok) {
+                    apiSuccess = true
+                    console.log('[SIREN] Message delivered to central node successfully.')
+                } else {
+                    console.error('[SIREN] Central node returned error:', response.status)
+                }
             } catch (apiError) {
-                console.error('[SIREN] Error sending packet to central node:', apiError)
+                console.error('[SIREN] Error sending to central node:', apiError)
                 console.warn('[SIREN] Central node unreachable — message saved to DB only.')
             }
 
