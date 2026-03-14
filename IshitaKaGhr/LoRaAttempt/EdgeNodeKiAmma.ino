@@ -1359,7 +1359,7 @@ void checkAlerts(SensorData data) {
     }
   }
   
-  if (data.humidity <= 20.0) {
+  if (data.humidity <= 5.0) {
     if (lastHumidityLowAlert == 0 || (now - lastHumidityLowAlert >= ALERT_COOLDOWN)) {
       Serial.println("!!! LOW HUMIDITY ALERT");
       Serial.printf("    Humidity: %.1f%% (threshold: 20%%)\n", data.humidity);
