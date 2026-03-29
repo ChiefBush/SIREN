@@ -65,18 +65,22 @@
 // ========================= System constants =========================
 #define NODE_ID "001"
 
-#define MQ2_DANGER_THRESHOLD 1000
-#define MQ9_DANGER_THRESHOLD 3800
-#define MQ135_DANGER_THRESHOLD 1800
+#define MQ2_DANGER_THRESHOLD 1500
+#define MQ9_DANGER_THRESHOLD 2000
+#define MQ135_DANGER_THRESHOLD 2000
 
 #define FALLBACK_TEMPERATURE 27.0
-#define FALLBACK_HUMIDITY 47.0
+#define FALLBACK_HUMIDITY -1.0
 
-#define CALIBRATION_SAMPLES 10
-#define DANGER_MULTIPLIER 2.0
-#define CALIBRATION_DELAY 2000
+#define CALIBRATION_SAMPLES 50
+#define DANGER_MULTIPLIER 1.4
+#define CALIBRATION_DELAY 200
+// Per datasheet: MQ-2 needs 24hr, MQ-9 and MQ-135 need 48hr preheat
+// This flag can be set to true after the device has been powered 48+ hours
+#define SENSOR_FULLY_PREHEATED false  // Change to true after 48hr powered operation
 
 bool pendingEmergency = false;
+bool pendingMessageReceivedAudio = false;
 
 const int TAP_TIMEOUT = 600;
 const int REQUIRED_TAPS = 3;
@@ -181,7 +185,7 @@ int loraInterval = 30000;
 int packetCount = 0;
 
 unsigned long lastDHTReading = 0;
-const unsigned long DHT_READING_INTERVAL = 2000;
+const unsigned long DHT_READING_INTERVAL = 3000;  // DHT11 needs >2s, 3s gives safe margin
 float lastValidTemperature = FALLBACK_TEMPERATURE;
 float lastValidHumidity = FALLBACK_HUMIDITY;
 
@@ -497,10 +501,10 @@ void detectFallAndHandle() {
 
 // Air Quality Rating function
 String getAirQualityRating(int value) {
-  if (value < 800) return "Excellent";
-  else if (value < 1200) return "Good";
-  else if (value < 1800) return "Moderate";
-  else if (value < 2400) return "Poor";
+  if (value < 1000) return "Excellent";    // Baseline clean air ADC range
+  else if (value < 1500) return "Good";
+  else if (value < 2000) return "Moderate";
+  else if (value < 2800) return "Poor";
   else return "Very Poor";
 }
 
@@ -559,7 +563,7 @@ void handleEmergency() {
     Serial.println("⚠ LoRa not ready - emergency packet queued");
   }
   
-  delay(500);  // Give some time for audio to play
+  //delay(500); Give some time for audio to play
 }
 
 // -------------------------- Setup & Loop --------------------------
@@ -811,7 +815,7 @@ delay(100);
       lastValidTemperature = t;
       
       // Apply humidity correction
-      float corrected = h - 30.0f;
+      float corrected = h * 0.8f;
       if (corrected < 0.0f) corrected = 0.0f;
       if (corrected > 100.0f) corrected = 100.0f;
       lastValidHumidity = corrected;
@@ -835,10 +839,10 @@ delay(100);
   // PHASE 8: GAS SENSOR WARMUP & CALIBRATION
   // ========================================
   Serial.println("\nPHASE 8: Gas sensor warmup...");
-  Serial.println("  Please wait 15 seconds for sensors to stabilize");
-  
-  // Progress indicator
-  for (int i = 0; i < 15; i++) {
+  Serial.println("  NOTE: MQ sensors require 24-48hr preheat per datasheet.");
+  Serial.println("  Running 60-second minimum warmup. For accurate readings,");
+  Serial.println("  keep the device powered for 48 hours before deployment.");
+  for (int i = 0; i < 60; i++) {
     Serial.print(".");
     delay(1000);
   }
@@ -917,6 +921,12 @@ void loop() {
   motionData.fallDetected = false;
   pendingEmergency = false;  // Clear the flag after handling
 }
+
+// PRIORITY 4b: Play deferred audio (set by ESP-NOW callback - cannot play audio from ISR context)
+  if (pendingMessageReceivedAudio && audioReady) {
+    pendingMessageReceivedAudio = false;
+    playAudioFile(MESSAGE_RECEIVED);
+  }
   
   // ========================================
   // PRIORITY 5: Check for incoming LoRa messages
@@ -960,8 +970,11 @@ void loop() {
     }
     
     // Check for incoming messages RIGHT AFTER transmitting
-    delay(150);
-    if (loraReady) receiveLoRaMessages();
+    unsigned long waitStart = millis();
+    while (millis() - waitStart < 150) {
+      if (loraReady) receiveLoRaMessages();
+      yield();
+    }
     
     Serial.println("────────────────────────────────────");
   }
@@ -977,7 +990,7 @@ void loop() {
   // ========================================
   // Small delay to prevent watchdog issues
   // ========================================
-  delay(50);
+  yield();
 }
 
 // ==================== HELPER FUNCTIONS ====================
@@ -1079,7 +1092,7 @@ void testDHT() {
     float t = dht.readTemperature();
     float h = dht.readHumidity();
     if (!isnan(t) && !isnan(h)) {
-      float corr = h - 30.0f;
+      float corr = h * 0.8f;
       if (corr < 0) corr = 0; if (corr > 100) corr = 100;
       Serial.printf(" #%d: Temp=%.2f C, Hum(corrected)=%.2f %%\n", i+1, t, corr);
     } else {
@@ -1219,7 +1232,7 @@ void setVolume(int volume) {
 }
 
 void playAudioFile(int fileNumber) {
-  if (fileNumber < 1 || fileNumber > 10) return;
+  if (fileNumber < 1 || fileNumber > 11) return;   // Enum goes to FALL_ALERT = 11
   sendCommand(CMD_PLAY_TRACK, 0x00, fileNumber, false);
   delay(60);
 }
@@ -1249,7 +1262,7 @@ void calibrateSensor(int pin, SensorCalibration* cal, String sensorName, int min
   cal->baseline = sum / CALIBRATION_SAMPLES;
   
   // FIXED: For MQ9 specifically, if baseline is already high, use static threshold
-  if (sensorName == "MQ9" && cal->baseline > (minThreshold * 0.8)) {
+  if (sensorName == "MQ9" && cal->baseline > (minThreshold * 0.7)) {
     Serial.printf("\n    ⚠ MQ9 baseline (%.0f) is high - using static threshold\n", cal->baseline);
     cal->dangerThreshold = minThreshold;
   } else {
@@ -1271,13 +1284,19 @@ SensorData readAllSensors() {
   SensorData data;
   data.timestamp = millis();
   if (millis() - lastDHTReading > DHT_READING_INTERVAL) {
-    float rt = dht.readTemperature();
-    float rh = dht.readHumidity();
-    if (!isnan(rt) && rt >= -40 && rt <= 80) { data.temperature = rt; lastValidTemperature = rt; }
-    else data.temperature = lastValidTemperature;
-    if (!isnan(rh) && rh >= 0 && rh <= 100) {
-      float corr = rh - 30.0f;
+    float rt = NAN, rh = NAN;
+    for (int retry = 0; retry < 3; retry++) {
+      rt = dht.readTemperature();
+      rh = dht.readHumidity();
+      if (!isnan(rt) && !isnan(rh)) break;
+      delay(500);
+}
+if (!isnan(rt) && rt >= -40 && rt <= 80) { data.temperature = rt; lastValidTemperature = rt; }
+else data.temperature = lastValidTemperature;
+if (!isnan(rh) && rh >= 0 && rh <= 100) {
+     float corr = rh * 0.8f;   // 20% scale correction, more realistic than flat -30
       if (corr < 0.0f) corr = 0.0f;
+      if (corr > 100.0f) corr = 100.0f;
       if (corr > 100.0f) corr = 100.0f;
       data.humidity = corr;
       lastValidHumidity = corr;
@@ -1287,9 +1306,17 @@ SensorData readAllSensors() {
     data.temperature = lastValidTemperature;
     data.humidity = lastValidHumidity;
   }
-  data.mq2_analog = analogRead(MQ2_ANALOG_PIN);
-  data.mq9_analog = analogRead(MQ9_ANALOG_PIN);
-  data.mq135_analog = analogRead(MQ135_ANALOG_PIN);
+  // Multi-sample average to reduce ADC noise (datasheets require stable readings)
+  int mq2_sum = 0, mq9_sum = 0, mq135_sum = 0;
+  for (int i = 0; i < 5; i++) {
+    mq2_sum   += analogRead(MQ2_ANALOG_PIN);
+    mq9_sum   += analogRead(MQ9_ANALOG_PIN);
+    mq135_sum += analogRead(MQ135_ANALOG_PIN);
+    delay(10);
+  }
+  data.mq2_analog   = mq2_sum   / 5;
+  data.mq9_analog   = mq9_sum   / 5;
+  data.mq135_analog = mq135_sum / 5;
   data.mq2_digital = digitalRead(MQ2_DIGITAL_PIN) == LOW;
   data.mq9_digital = digitalRead(MQ9_DIGITAL_PIN) == LOW;
   data.mq135_digital = digitalRead(MQ135_DIGITAL_PIN) == LOW;
@@ -1301,7 +1328,9 @@ SensorData readAllSensors() {
 void displayReadings(SensorData data) {
   Serial.println("\n--- SENSOR SNAPSHOT ---");
   Serial.printf("Timestamp: %lu\n", data.timestamp);
-  Serial.printf("Temp: %.1f C  Hum: %.1f %%\n", data.temperature, data.humidity);
+  Serial.printf("Temp: %.1f C %s  Hum: %.1f %% %s\n",
+  data.temperature, (data.temperature == FALLBACK_TEMPERATURE) ? "[FALLBACK]" : "",
+  data.humidity,    (data.humidity == FALLBACK_HUMIDITY)    ? "[FALLBACK]" : "");
   Serial.printf("MQ2: %d (%s)  MQ9: %d (%s)  MQ135: %d (%s)\n",
                 data.mq2_analog, data.mq2_digital ? "ALERT":"OK",
                 data.mq9_analog, data.mq9_digital ? "ALERT":"OK",
@@ -1573,11 +1602,10 @@ void onDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *data, int l
       
       // NEW: Play audio when message is successfully acknowledged by wristband
       if (ack.success && audioReady) {
-  delay(200);  // Wait for ESP-NOW to finish
-  playAudioFile(MESSAGE_RECEIVED);
-  Serial.println("✓ Playing message received confirmation audio");
-  delay(100);  // Ensure audio command is sent
-}
+        // Do NOT call playAudioFile() directly from ESP-NOW callback context
+        // Set a flag and let the main loop handle it safely
+        pendingMessageReceivedAudio = true;
+      }
       
     } else {
       Serial.printf("[ESP-NOW RX] ACK for unknown msgId=%lu\n", 
