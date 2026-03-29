@@ -7,7 +7,7 @@ import ChatFloatingButton from '../components/ChatFloatingButton'
 import Footer from '../components/Footer'
 import EmergencyAlertModal from '../components/EmergencyAlertModal'
 import SupervisorIncidentReports from './SupervisorIncidentReports'
-import { usePredictions } from '../hooks/usePredictions'
+import { usePredictions, getRiskDisplayLabel } from '../hooks/usePredictions'
 
 function AdminDashboard({ onLogout }) {
   const navigate = useNavigate()
@@ -32,8 +32,8 @@ function AdminDashboard({ onLogout }) {
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
 
   // ML Predictions
-  const { predictions, latestPrediction, loading: predictionsLoading } = usePredictions()
-  const criticalPredictions = predictions.filter(p => p.risk_level === 'high' || p.risk_level === 'critical')
+  const { predictions, latestPrediction, loading: predictionsLoading } = usePredictions(null, 0.85)
+  const criticalPredictions = predictions.filter(p => (p.risk_level === 'high' || p.risk_level === 'critical') && p.risk_score >= 0.85)
   const lastMLPredictionIdRef = useRef(null)
 
   const menuRef = useRef(null)
@@ -82,7 +82,7 @@ function AdminDashboard({ onLogout }) {
       setTimeout(() => setEmergencyNotifications(cur => cur.filter(n => n.id !== notifId)), 15000)
       return [{ 
         id: notifId, 
-        message: `🤖 AI WARNING: ${prediction.prediction_type.replace(/_/g, ' ')} detected remotely. Risk Level: ${prediction.risk_level.toUpperCase()}`,
+        message: `🤖 AI Predictive Signal: ${prediction.prediction_type.replace(/_/g, ' ')} detected. Assessment: ${getRiskDisplayLabel(prediction.risk_level)}`,
         timestamp: new Date(),
         type: 'ml'
       }, ...prev]
@@ -95,7 +95,7 @@ function AdminDashboard({ onLogout }) {
          lastMLPredictionIdRef.current = latestPrediction.id
       } else if (lastMLPredictionIdRef.current !== latestPrediction.id) {
          lastMLPredictionIdRef.current = latestPrediction.id
-         if (latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') {
+         if ((latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') && latestPrediction.risk_score >= 0.85) {
             showMLNotification(latestPrediction)
          }
       }
@@ -544,9 +544,9 @@ function AdminDashboard({ onLogout }) {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
-                        ML Early Warnings
+                        AI Predictive Risk Signals
                       </h3>
-                      <p className="text-sm text-orange-700">Real-time predictive alerts from the AI model.</p>
+                      <p className="text-sm text-orange-700">AI-assessed environmental risk conditions — advisory only.</p>
                     </div>
                     <span className="bg-orange-600 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-sm">
                       {criticalPredictions.length} Active
@@ -562,16 +562,16 @@ function AdminDashboard({ onLogout }) {
                             !
                           </div>
                           <div>
-                            <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')} Warning</h4>
+                            <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')}</h4>
                             <p className="text-xs text-gray-500 font-medium">Miner: {pred.users?.full_name || 'Global Area'}</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <div className={`text-sm font-bold ${pred.risk_level === 'critical' ? 'text-red-600' : 'text-orange-600'}`}>
-                            {(pred.risk_score * 100).toFixed(0)}% Risk
+                            {getRiskDisplayLabel(pred.risk_level)}
                           </div>
                           <div className="text-xs text-gray-400 font-medium">
-                            {new Date(pred.created_at).toLocaleTimeString()}
+                            {(pred.risk_score * 100).toFixed(0)}% · {new Date(pred.created_at).toLocaleTimeString()}
                           </div>
                         </div>
                       </div>
@@ -838,8 +838,8 @@ function AdminDashboard({ onLogout }) {
           {activePage === 'prediction-history' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-3xl font-bold text-gray-900">ML Analytics History</h2>
-                <p className="text-gray-600 mt-1">Audit trail of AI-driven early warnings and predictions</p>
+                <h2 className="text-3xl font-bold text-gray-900">AI Predictive Risk History</h2>
+                <p className="text-gray-600 mt-1">Audit trail of AI-assessed risk conditions — advisory only</p>
               </div>
 
               <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
@@ -848,7 +848,7 @@ function AdminDashboard({ onLogout }) {
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
                         <th className="px-6 py-4 font-semibold">Timestamp</th>
-                        <th className="px-6 py-4 font-semibold">Risk Level</th>
+                        <th className="px-6 py-4 font-semibold">Risk Assessment</th>
                         <th className="px-6 py-4 font-semibold">Prediction Type</th>
                         <th className="px-6 py-4 font-semibold">Location / UID</th>
                         <th className="px-6 py-4 font-semibold">Confidence</th>
@@ -858,7 +858,7 @@ function AdminDashboard({ onLogout }) {
                       {predictions.length === 0 ? (
                         <tr>
                           <td colSpan="5" className="px-6 py-8 text-center text-gray-500 italic">
-                            No ML predictions recorded yet.
+                            No AI risk predictions recorded yet.
                           </td>
                         </tr>
                       ) : (
@@ -875,7 +875,7 @@ function AdminDashboard({ onLogout }) {
                                 pred.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                                 'bg-green-100 text-green-700'
                               }`}>
-                                {pred.risk_level}
+                                {getRiskDisplayLabel(pred.risk_level)}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm font-semibold capitalize text-gray-800">

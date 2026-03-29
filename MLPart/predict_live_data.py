@@ -61,8 +61,19 @@ def run_live_inference():
     This script constantly pulls the latest real sensor string from your Supabase 
     database, analyzes it using the trained Random Forest model, and alerts the 
     dashboard if there's danger.
+    
+    FALSE-POSITIVE MITIGATION:
+    - Confidence threshold: Only alerts when model confidence >= 85%
+    - Cooldown timer: Same prediction_type won't re-alert within 2 minutes
+    - Risk level remapping: 'Poor' demoted to 'medium' (was 'high')
     """
     model_path = 'rf_model.pkl'
+    
+    # ── Tunable thresholds ──────────────────────────────────────────────
+    CONFIDENCE_THRESHOLD = 0.85       # Minimum confidence to fire any alert
+    CRITICAL_CONFIDENCE  = 0.95       # Confidence required for "critical" label
+    COOLDOWN_SECONDS     = 120        # 2 minutes between same prediction_type alerts
+    # ────────────────────────────────────────────────────────────────────
     
     if not os.path.exists(model_path):
         print(f"Model {model_path} not found. Train it first!")
@@ -92,15 +103,20 @@ def run_live_inference():
 
     supabase: Client = create_client(SENSOR_DB_URL, SENSOR_DB_KEY)
 
-    print("Starting Live Monitoring Simulation on REAL Sensor Data...")
+    print("Starting Live Monitoring on REAL Sensor Data...")
+    print(f"  Confidence threshold: {CONFIDENCE_THRESHOLD*100:.0f}%")
+    print(f"  Critical threshold:   {CRITICAL_CONFIDENCE*100:.0f}%")
+    print(f"  Cooldown:             {COOLDOWN_SECONDS}s")
     print("Press Ctrl+C to stop.\n")
     
     last_processed_id = None
+    
+    # Cooldown tracker: { prediction_type: last_alert_timestamp }
+    last_alert_times = {}
 
     try:
         while True:
             # 1. Fetch the absolute newest single row of sensor data from your Supabase table
-            # Adjust the table name ('sensor_data') if yours is named differently!
             try:
                 response = supabase.table('sensor_data').select('*').order('created_at', desc=True).limit(1).execute()
             except Exception as e:
@@ -123,7 +139,6 @@ def run_live_inference():
             last_processed_id = latest_row.get('id')
 
             # 2. Extract exactly the features your model was trained on
-            # Make sure these keys match the columns in your real `sensor_data` table
             try:
                 current_sensor_data = {
                     'temperature': float(latest_row.get('temperature', 25.0)), 
@@ -147,30 +162,54 @@ def run_live_inference():
             max_prob = np.max(probabilities)
             
             # Print status periodically
-            print(f"[{latest_row.get('created_at')}] Live Data Analyzed -> '{prediction}' (Confidence: {max_prob:.2f})")
+            print(f"[{latest_row.get('created_at')}] Analyzed -> '{prediction}' (Confidence: {max_prob:.2f})")
             
             # 4. Logic to determine if we should send an alert
             if prediction in ['Poor', 'Hazardous']:
-                print(f"⚠️ DANGER DETECTED!")
                 
-                risk_level = "critical" if prediction == 'Hazardous' else "high"
+                # ── GATE 1: Confidence threshold ────────────────────────
+                if max_prob < CONFIDENCE_THRESHOLD:
+                    print(f"   ↳ Suppressed (confidence {max_prob:.0%} < threshold {CONFIDENCE_THRESHOLD:.0%})")
+                    time.sleep(5)
+                    continue
                 
-                # We pull the central_node_id or sensor_node_id to identify the area/miner
-                # Since these might just be strings like "001" and NOT UUIDs,
-                # we should pass the actual user_id as miner_id if it exists,
-                # and pass the "001" string securely inside the `details` JSON payload!
+                # ── GATE 2: Cooldown timer ──────────────────────────────
+                pred_type = "air_quality_warning"
+                now = time.time()
+                last_sent = last_alert_times.get(pred_type, 0)
+                if (now - last_sent) < COOLDOWN_SECONDS:
+                    remaining = int(COOLDOWN_SECONDS - (now - last_sent))
+                    print(f"   ↳ Cooldown active ({remaining}s remaining)")
+                    time.sleep(5)
+                    continue
+                
+                # ── Determine risk level with softer mapping ────────────
+                if prediction == 'Hazardous' and max_prob >= CRITICAL_CONFIDENCE:
+                    risk_level = "critical"     # Genuine critical — ≥95% Hazardous
+                elif prediction == 'Hazardous':
+                    risk_level = "high"         # Hazardous but < 95% confidence
+                else:
+                    risk_level = "medium"       # Poor air quality (was "high", demoted)
+                
+                print(f"   ⚠️  ALERT FIRED: {risk_level.upper()} (conf: {max_prob:.0%})")
                 
                 node_identifier = latest_row.get('sensor_node_id') or latest_row.get('central_node_id') or latest_row.get('device_id', 'UnknownNode')
                 actual_user_uuid = latest_row.get('user_id')
                 
                 # 5. Trigger the Supabase Edge Function to update your Dashboard UI!
                 SirenDashboardAlerter.send_alert(
-                    prediction_type="air_quality_warning", 
+                    prediction_type=pred_type, 
                     risk_score=max_prob, 
                     risk_level=risk_level,
-                    miner_id=actual_user_uuid, # Will be None if it's missing, which is perfect.
-                    details={"hardware_node_id": str(node_identifier)} # Saving the "001" string safely here!
+                    miner_id=actual_user_uuid,
+                    details={"hardware_node_id": str(node_identifier)}
                 )
+                
+                # Record cooldown timestamp
+                last_alert_times[pred_type] = now
+            else:
+                # Good / Moderate — no alert needed
+                pass
                 
             # Wait a few seconds before checking the database for brand new rows again
             time.sleep(5)

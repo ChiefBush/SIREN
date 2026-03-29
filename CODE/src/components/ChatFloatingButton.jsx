@@ -229,7 +229,7 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
             // Fire HTTP call to central node in the background (non-blocking)
             const savedMsgId = data.id
             try {
-                const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.6'
+                const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.2'
                 const controller = new AbortController()
                 // ESP32 takes 9-12s to send LoRa retries before it returns HTTP 200. Give it 30s.
                 const timeoutId = setTimeout(() => controller.abort(), 30000)

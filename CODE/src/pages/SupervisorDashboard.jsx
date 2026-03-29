@@ -11,7 +11,7 @@ import ChatFloatingButton from '../components/ChatFloatingButton'
 import SupervisorIncidentReports from './SupervisorIncidentReports'
 import Footer from '../components/Footer'
 import EmergencyAlertModal from '../components/EmergencyAlertModal'
-import { usePredictions } from '../hooks/usePredictions'
+import { usePredictions, getRiskDisplayLabel } from '../hooks/usePredictions'
 
 function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const navigate = useNavigate()
@@ -30,8 +30,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const lastWarningRowIdRef = useRef(null) // tracks last sensor row checked for warnings to prevent duplicate incidents
 
   // ML Predictions
-  const { predictions, latestPrediction } = usePredictions()
-  const criticalPredictions = predictions.filter(p => p.risk_level === 'high' || p.risk_level === 'critical')
+  const { predictions, latestPrediction } = usePredictions(null, 0.85)
+  const criticalPredictions = predictions.filter(p => (p.risk_level === 'high' || p.risk_level === 'critical') && p.risk_score >= 0.85)
   const lastMLPredictionIdRef = useRef(null)
 
   // Get sensor data for dashboard (charts/metrics — email-gated for the specific miner)
@@ -206,7 +206,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       return [{
         id: notificationId,
         type: 'ml-warning',
-        message: `🤖 AI WARNING: ${prediction.prediction_type.replace(/_/g, ' ')} detected remotely. Risk Level: ${prediction.risk_level.toUpperCase()}`,
+        message: `🤖 AI Predictive Signal: ${prediction.prediction_type.replace(/_/g, ' ')} detected. Assessment: ${getRiskDisplayLabel(prediction.risk_level)}`,
         timestamp: new Date()
       }, ...prev]
     })
@@ -216,9 +216,9 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
     if (latestPrediction) {
       if (!lastMLPredictionIdRef.current) {
          lastMLPredictionIdRef.current = latestPrediction.id
-      } else if (lastMLPredictionIdRef.current !== latestPrediction.id) {
+       } else if (lastMLPredictionIdRef.current !== latestPrediction.id) {
          lastMLPredictionIdRef.current = latestPrediction.id
-         if (latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') {
+         if ((latestPrediction.risk_level === 'high' || latestPrediction.risk_level === 'critical') && latestPrediction.risk_score >= 0.85) {
             showMLNotification(latestPrediction)
          }
       }
@@ -779,9 +779,9 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
-                        ML Early Warnings
+                        AI Predictive Risk Signals
                       </h3>
-                      <p className="text-sm text-orange-700">Real-time predictive alerts from the AI model.</p>
+                      <p className="text-sm text-orange-700">AI-assessed environmental risk conditions — advisory only.</p>
                     </div>
                     <span className="bg-orange-600 text-white text-xs font-bold px-2.5 py-1 rounded-full animate-pulse shadow-sm">
                       {criticalPredictions.length} Active
@@ -797,16 +797,16 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                             !
                           </div>
                           <div>
-                            <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')} Warning</h4>
+                            <h4 className="font-bold text-gray-900 text-sm capitalize">{pred.prediction_type.replace(/_/g, ' ')}</h4>
                             <p className="text-xs text-gray-500 font-medium">Miner: {pred.users?.full_name || 'Global Area'}</p>
                           </div>
                         </div>
                         <div className="text-right">
                           <div className={`text-sm font-bold ${pred.risk_level === 'critical' ? 'text-red-600' : 'text-orange-600'}`}>
-                            {(pred.risk_score * 100).toFixed(0)}% Risk
+                            {getRiskDisplayLabel(pred.risk_level)}
                           </div>
                           <div className="text-xs text-gray-400 font-medium">
-                            {new Date(pred.created_at).toLocaleTimeString()}
+                            {(pred.risk_score * 100).toFixed(0)}% · {new Date(pred.created_at).toLocaleTimeString()}
                           </div>
                         </div>
                       </div>
@@ -920,8 +920,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           {activePage === 'prediction-history' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-3xl font-bold text-gray-900">ML Analytics History</h2>
-                <p className="text-gray-600 mt-1">Historical log of AI early warnings relevant to your team.</p>
+                <h2 className="text-3xl font-bold text-gray-900">AI Predictive Risk History</h2>
+                <p className="text-gray-600 mt-1">Historical log of AI-assessed risk conditions relevant to your team — advisory only.</p>
               </div>
 
               <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">
@@ -930,7 +930,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 text-xs uppercase tracking-wider">
                         <th className="px-6 py-4 font-semibold">Timestamp</th>
-                        <th className="px-6 py-4 font-semibold">Risk Level</th>
+                        <th className="px-6 py-4 font-semibold">Risk Assessment</th>
                         <th className="px-6 py-4 font-semibold">Prediction Type</th>
                         <th className="px-6 py-4 font-semibold">Location / UID</th>
                         <th className="px-6 py-4 font-semibold">Confidence</th>
@@ -940,7 +940,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                       {predictions.length === 0 ? (
                         <tr>
                           <td colSpan="5" className="px-6 py-8 text-center text-gray-500 italic">
-                            No ML predictions recorded yet for your team.
+                            No AI risk predictions recorded yet for your team.
                           </td>
                         </tr>
                       ) : (
@@ -957,7 +957,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                                 pred.risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' :
                                 'bg-green-100 text-green-700'
                               }`}>
-                                {pred.risk_level}
+                                {getRiskDisplayLabel(pred.risk_level)}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm font-semibold capitalize text-gray-800">

@@ -2,10 +2,26 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
 /**
+ * Map raw risk_level values from the database to user-friendly display labels.
+ * The DB still stores 'critical'/'high'/'medium'/'low' — this is UI-only.
+ */
+export const RISK_DISPLAY_LABELS = {
+    critical: 'Elevated Risk',
+    high: 'Predictive Risk',
+    medium: 'Monitor',
+    low: 'Normal'
+}
+
+export function getRiskDisplayLabel(riskLevel) {
+    return RISK_DISPLAY_LABELS[riskLevel] || riskLevel
+}
+
+/**
  * Hook to fetch and listen to real-time ML predictions
  * @param {string} filterUserId - Optional user ID to filter predictions
+ * @param {number} minConfidence - Minimum risk_score (0-1) to include (default 0 = show all)
  */
-export function usePredictions(filterUserId = null) {
+export function usePredictions(filterUserId = null, minConfidence = 0) {
     const [predictions, setPredictions] = useState([])
     const [latestPrediction, setLatestPrediction] = useState(null)
     const [loading, setLoading] = useState(true)
@@ -24,6 +40,10 @@ export function usePredictions(filterUserId = null) {
 
                 if (filterUserId) {
                     query = query.eq('miner_id', filterUserId)
+                }
+
+                if (minConfidence > 0) {
+                    query = query.gte('risk_score', minConfidence)
                 }
 
                 const { data, error } = await query
@@ -46,7 +66,7 @@ export function usePredictions(filterUserId = null) {
         fetchPredictions()
 
         return () => { mounted = false }
-    }, [filterUserId])
+    }, [filterUserId, minConfidence])
 
     // Subscription for real-time inserts
     useEffect(() => {
@@ -68,6 +88,11 @@ export function usePredictions(filterUserId = null) {
                 ...(filterUserId ? { filter: `miner_id=eq.${filterUserId}` } : {})
             }, async (payload) => {
                 const newPrediction = payload.new
+
+                // Skip low-confidence predictions in realtime too
+                if (minConfidence > 0 && newPrediction.risk_score < minConfidence) {
+                    return
+                }
 
                 // We need to fetch the user's name separately since realtime 
                 // payloads don't automatically join tables
@@ -96,7 +121,7 @@ export function usePredictions(filterUserId = null) {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [filterUserId])
+    }, [filterUserId, minConfidence])
 
     return {
         predictions,
@@ -104,3 +129,4 @@ export function usePredictions(filterUserId = null) {
         loading
     }
 }
+
