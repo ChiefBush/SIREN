@@ -175,7 +175,7 @@ export function useSensorData(userId = null, userEmail = null, useRealData = tru
                         spo2: newSpo2,
                         emergency: newEmergency
                     }
-                    return [...prev, newItem].slice(-100)
+                    return [...prev, newItem].slice(-40)
                 })
             })
             .subscribe()

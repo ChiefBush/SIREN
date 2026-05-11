@@ -4,6 +4,25 @@ import DHT11Chart from './DHT11Chart'
 import FallDetectionChart from './FallDetectionChart'
 import WatchVitalsChart from './WatchVitalsChart'
 
+function smoothData(data, windowSize = 3) {
+    if (!data || data.length < windowSize) return data
+    const numericKeys = ['mq2', 'mq9', 'mq135', 'temperature', 'humidity', 'accel', 'gyro', 'bpm', 'spo2']
+    const result = []
+    for (let i = 0; i < data.length; i++) {
+        const start = Math.max(0, i - windowSize + 1)
+        const window = data.slice(start, i + 1)
+        const avg = { ...data[i] }
+        for (const key of numericKeys) {
+            const values = window.map(w => w[key]).filter(v => v != null && !isNaN(v))
+            if (values.length > 0) {
+                avg[key] = values.reduce((a, b) => a + b, 0) / values.length
+            }
+        }
+        result.push(avg)
+    }
+    return result
+}
+
 /**
  * Reusable Dashboard Charts component
  * Displays 4 charts in a responsive grid layout:
@@ -23,8 +42,8 @@ function DashboardCharts({ userId = null, userEmail = null, stacked = false }) {
         )
     }
 
-    // Use full data for better detail unless it's extremely large
-    const chartData = sensorHistory.map(item => ({
+    // Smooth and prepare data for charts
+    const chartData = smoothData(sensorHistory).map(item => ({
         ...item,
         time: item.time.getTime()
     }))

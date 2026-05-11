@@ -126,7 +126,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                                 dataKey="bpm"
                                 stroke="#ef4444"
                                 strokeWidth={isDashboard ? 2.5 : 2}
-                                dot={{ r: 3, fill: '#ef4444' }}
+                                dot={false}
                                 activeDot={{ r: 5 }}
                                 yAxisId="bpm"
                                 name="Heart Rate"
@@ -139,7 +139,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                                 dataKey="spo2"
                                 stroke="#3b82f6"
                                 strokeWidth={isDashboard ? 2.5 : 2}
-                                dot={{ r: 3, fill: '#3b82f6' }}
+                                dot={false}
                                 activeDot={{ r: 5 }}
                                 yAxisId="spo2"
                                 name="Blood O₂"
