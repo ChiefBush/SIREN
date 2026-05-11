@@ -28,6 +28,8 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const lastEmergencyIncidentRef = useRef(null) // tracks last incident created to prevent duplicates
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
   const lastWarningRowIdRef = useRef(null) // tracks last sensor row checked for warnings to prevent duplicate incidents
+  const lastWarningIncidentTimeRef = useRef(0) // tracks last time a warning incident was created (cooldown)
+  const lastEmergencyIncidentTimeRef = useRef(0) // tracks last time an emergency incident was created (cooldown)
 
   // ML Predictions
   const { predictions, latestPrediction } = usePredictions(null, 0.85)
@@ -72,9 +74,23 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   }
 
   // Auto-log warning/critical sensor readings as a single consolidated incident
+  // COOLDOWN: Only creates one incident per 5 minutes per condition to prevent spam
   const createSensorWarningIncident = async (sensorRow, isEmergency = false) => {
-    // If this row is an emergency, the emergency incident already covers it — skip
+    // Skip if this row is an emergency (covered by emergency incident) or if device is offline
     if (isEmergency) return
+    if (!sensorRow?.wristband_connected && sensorRow?.wristband_connected !== undefined) {
+      console.log('[SIREN] Skipping warning incident — wristband offline')
+      return
+    }
+
+    const WARNING_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+    const now = Date.now()
+
+    // Cooldown gate: don't create incidents faster than every 5 minutes
+    if (now - lastWarningIncidentTimeRef.current < WARNING_COOLDOWN_MS) {
+      console.log('[SIREN] Warning incident cooldown active — skipping')
+      return
+    }
 
     try {
       const rowId = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || '')
@@ -105,13 +121,28 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       // Nothing to log — all sensors safe
       if (breaches.length === 0) return
 
+      // Check if there's already an active incident for the same sensor conditions
+      const today = new Date().toISOString().split('T')[0]
+      const { data: existingIncidents, error: checkError } = await supabase
+        .from('incidents')
+        .select('id')
+        .eq('status', 'reported')
+        .gte('reported_at', new Date(now - WARNING_COOLDOWN_MS).toISOString())
+        .limit(1)
+
+      if (checkError) {
+        console.error('[SIREN] Error checking existing incidents:', checkError)
+      } else if (existingIncidents && existingIncidents.length > 0) {
+        console.log('[SIREN] Active incident already exists within cooldown — skipping')
+        return
+      }
+
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const reportedBy = authUser?.id || null
 
       const hasCritical = breaches.some(b => b.level === 'critical')
       const overallSeverity = hasCritical ? 'critical' : 'medium'
       const recordedAt = new Date().toLocaleString()
-      const todayDate = new Date().toISOString().split('T')[0]
 
       // Build one consolidated description listing every breaching sensor
       const breachLines = breaches
@@ -127,13 +158,14 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
         status: 'reported',
         location: 'Helmet Sensor Node',
         description,
-        date: todayDate,
+        date: today,
         reported_by: reportedBy
       })
 
       if (error) {
         console.error('[SIREN] Failed to log sensor warning incident:', error)
       } else {
+        lastWarningIncidentTimeRef.current = now
         console.log(`[SIREN] Consolidated sensor warning incident logged (${breaches.length} breach${breaches.length > 1 ? 'es' : ''})`)
       }
     } catch (err) {
@@ -143,12 +175,43 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
 
   // Auto-create a critical incident in the incidents table when an emergency is detected
+  // COOLDOWN: Only creates one emergency incident per 5 minutes
   const createEmergencyIncident = async (sensorRow) => {
+    const EMERGENCY_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+    const now = Date.now()
+
+    // Skip if device is offline (emergency button can't be pressed if disconnected)
+    if (!sensorRow?.wristband_connected && sensorRow?.wristband_connected !== undefined) {
+      console.log('[SIREN] Skipping emergency incident — wristband offline')
+      return
+    }
+
+    // Cooldown gate
+    if (now - lastEmergencyIncidentTimeRef.current < EMERGENCY_COOLDOWN_MS) {
+      console.log('[SIREN] Emergency incident cooldown active — skipping')
+      return
+    }
+
     try {
       // Use the row's id or timestamp as deduplication key
       const dedupeKey = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || Date.now())
       if (lastEmergencyIncidentRef.current === dedupeKey) return
       lastEmergencyIncidentRef.current = dedupeKey
+
+      // Check if there's already an active emergency incident within cooldown
+      const { data: existingIncidents, error: checkError } = await supabase
+        .from('incidents')
+        .select('id')
+        .eq('status', 'reported')
+        .gte('reported_at', new Date(now - EMERGENCY_COOLDOWN_MS).toISOString())
+        .limit(1)
+
+      if (checkError) {
+        console.error('[SIREN] Error checking existing emergency incidents:', checkError)
+      } else if (existingIncidents && existingIncidents.length > 0) {
+        console.log('[SIREN] Active emergency incident already exists within cooldown — skipping')
+        return
+      }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const reportedBy = authUser?.id || null
@@ -167,6 +230,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       if (error) {
         console.error('[SIREN] Failed to auto-create emergency incident:', error)
       } else {
+        lastEmergencyIncidentTimeRef.current = now
         console.log('[SIREN] Emergency incident created successfully')
       }
     } catch (err) {
@@ -553,12 +617,12 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
   const criticalIncidentsCount = activeIncidents.filter(i => i.severity === 'critical' || i.severity === 'high').length
   const warningIncidentsCount = activeIncidents.filter(i => i.severity === 'medium' || i.severity === 'low').length
 
-  // Total counts for dashboard
-  const warningCount = sensorWarningCount + warningIncidentsCount
-  const criticalCount = sensorCriticalCount + criticalIncidentsCount
-  const safeCount = sensorSafeCount // Safe count usually refers to sensors in 'safe' state
+  // Total counts for dashboard — status cards now show ONLY live sensor status
+  const warningCount = sensorWarningCount
+  const criticalCount = sensorCriticalCount
+  const safeCount = sensorSafeCount
 
-  const allSystemsNormal = warningCount === 0 && criticalCount === 0
+  const allSystemsNormal = warningCount === 0 && criticalCount === 0 && warningIncidentsCount === 0 && criticalIncidentsCount === 0
 
   // Calculate active miners count
   const activeMinersCount = miners.filter(miner => activeStatuses[miner.id]).length
@@ -750,7 +814,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                 </div>
 
                 {/* Compact System Status Badge */}
-                <div className={`rounded-xl px-6 py-3 shadow-md border ${allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
+                <div className={`rounded-xl px-6 py-3 shadow-md border ${!sensorData.wristbandConnected ? 'bg-gray-500 border-gray-600' : allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
                   } text-white min-w-[240px]`}>
                   <div className="flex items-center space-x-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center shrink-0">
@@ -760,10 +824,14 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
                     </div>
                     <div>
                       <h3 className="text-lg font-bold leading-tight">
-                        {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
+                        {!sensorData.wristbandConnected ? 'Device Offline' : allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
                       <p className="text-[10px] opacity-90 font-medium uppercase tracking-wider">
-                        Updated: {sensorHistory.length > 0 ? formatTime(sensorHistory[sensorHistory.length - 1].time) : formatTime(currentTime)}
+                        {sensorHistory.length > 0 && sensorData.wristbandConnected
+                          ? `Last data: ${formatTime(sensorHistory[sensorHistory.length - 1].time)}`
+                          : !sensorData.wristbandConnected
+                            ? 'Connect wristband to monitor'
+                            : 'Waiting for sensor data...'}
                       </p>
                     </div>
                   </div>
@@ -868,32 +936,58 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
 
               {/* Summary Status Cards */}
               <div className="grid grid-cols-3 gap-4">
-                <div className="bg-green-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="text-4xl font-bold">{safeCount}</div>
-                  <div className="text-lg font-medium mt-2">Safe</div>
-                </div>
-                <div className="bg-yellow-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-4xl font-bold">{warningCount}</div>
-                      <div className="text-lg font-medium mt-2">Warning</div>
+                {!sensorData.wristbandConnected ? (
+                  <div className="col-span-3 bg-gray-400 rounded-lg p-6 text-white shadow-md">
+                    <div className="flex items-center justify-center space-x-3">
+                      <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-7.072 2.829a5 5 0 010-7.072m0 0l2.829-2.829M12 12h.01" />
+                      </svg>
+                      <div className="text-center">
+                        <div className="text-2xl font-bold">Device Offline</div>
+                        <div className="text-sm opacity-90 mt-1">No active wristband connection. Alerts are paused.</div>
+                      </div>
                     </div>
-                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                    </svg>
                   </div>
-                </div>
-                <div className="bg-red-500 rounded-lg p-6 text-white shadow-md">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-4xl font-bold">{criticalCount}</div>
-                      <div className="text-lg font-medium mt-2">Critical</div>
+                ) : (
+                  <>
+                    <div className={`rounded-lg p-6 text-white shadow-md ${safeCount > 0 ? 'bg-green-500' : 'bg-gray-300'}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-4xl font-bold">{safeCount}</div>
+                          <div className="text-sm font-medium mt-1 opacity-90">Sensors Normal</div>
+                          <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">out of 5 sensors</div>
+                        </div>
+                        <svg className="w-8 h-8 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                        </svg>
+                      </div>
                     </div>
-                    <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                </div>
+                    <div className={`rounded-lg p-6 text-white shadow-md ${warningCount > 0 ? 'bg-yellow-500' : 'bg-gray-300'}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-4xl font-bold">{warningCount}</div>
+                          <div className="text-sm font-medium mt-1 opacity-90">Sensor Warnings</div>
+                          <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">live thresholds exceeded</div>
+                        </div>
+                        <svg className="w-8 h-8 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </div>
+                    <div className={`rounded-lg p-6 text-white shadow-md ${criticalCount > 0 ? 'bg-red-500' : 'bg-gray-300'}`}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-4xl font-bold">{criticalCount}</div>
+                          <div className="text-sm font-medium mt-1 opacity-90">Sensor Critical</div>
+                          <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">live critical thresholds</div>
+                        </div>
+                        <svg className="w-8 h-8 opacity-50" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Dashboard Charts Section */}

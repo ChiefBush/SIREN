@@ -209,7 +209,7 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                 </div>
 
                 {/* Compact System Status Badge */}
-                <div className={`rounded-xl px-6 py-3 shadow-md border ${allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
+                <div className={`rounded-xl px-6 py-3 shadow-md border ${!sensorData.wristbandConnected ? 'bg-gray-500 border-gray-600' : allSystemsNormal ? 'bg-green-500 border-green-600' : criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-yellow-500 border-yellow-600'
                   } text-white min-w-[240px]`}>
                   <div className="flex items-center space-x-3">
                     <div className="w-8 h-8 bg-white bg-opacity-20 rounded-lg flex items-center justify-center shrink-0">
@@ -219,10 +219,14 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                     </div>
                     <div>
                       <h3 className="text-lg font-bold leading-tight">
-                        {allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
+                        {!sensorData.wristbandConnected ? 'Device Offline' : allSystemsNormal ? 'All Systems Normal' : criticalCount > 0 ? 'Critical Alert' : 'Warning Alert'}
                       </h3>
                       <p className="text-[10px] opacity-90 font-medium uppercase tracking-wider">
-                        Updated: {sensorHistory.length > 0 ? formatTime(new Date()) : formatTime(currentTime)}
+                        {sensorHistory.length > 0 && sensorData.wristbandConnected
+                          ? `Last data: ${formatTime(sensorHistory[sensorHistory.length - 1].time)}`
+                          : !sensorData.wristbandConnected
+                            ? 'Connect wristband to monitor'
+                            : 'Waiting for sensor data...'}
                       </p>
                     </div>
                   </div>
@@ -232,39 +236,58 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
 
             {/* Summary Status Cards */}
             <div className={`grid ${embedded ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-3'} gap-4`}>
-              <div className="bg-green-500 rounded-lg p-6 text-white shadow-md border-b-4 border-green-600">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-4xl font-bold">{safeCount}</div>
-                    <div className="text-lg font-medium mt-2">Systems Safe</div>
+              {!sensorData.wristbandConnected ? (
+                <div className="col-span-3 bg-gray-400 rounded-lg p-6 text-white shadow-md border-b-4 border-gray-500">
+                  <div className="flex items-center justify-center space-x-3">
+                    <svg className="w-8 h-8 opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-7.072 2.829a5 5 0 010-7.072m0 0l2.829-2.829M12 12h.01" />
+                    </svg>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold">Device Offline</div>
+                      <div className="text-sm opacity-90 mt-1">No active wristband connection. Alerts are paused.</div>
+                    </div>
                   </div>
-                  <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
                 </div>
-              </div>
-              <div className="bg-yellow-500 rounded-lg p-6 text-white shadow-md border-b-4 border-yellow-600">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-4xl font-bold">{warningCount}</div>
-                    <div className="text-lg font-medium mt-2">Warnings</div>
+              ) : (
+                <>
+                  <div className={`rounded-lg p-6 text-white shadow-md border-b-4 ${safeCount > 0 ? 'bg-green-500 border-green-600' : 'bg-gray-300 border-gray-400'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-4xl font-bold">{safeCount}</div>
+                        <div className="text-sm font-medium mt-1 opacity-90">Sensors Normal</div>
+                        <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">out of 5 sensors</div>
+                      </div>
+                      <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg>
+                    </div>
                   </div>
-                  <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
-              <div className="bg-red-500 rounded-lg p-6 text-white shadow-md border-b-4 border-red-600">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-4xl font-bold">{criticalCount}</div>
-                    <div className="text-lg font-medium mt-2">Critical Alerts</div>
+                  <div className={`rounded-lg p-6 text-white shadow-md border-b-4 ${warningCount > 0 ? 'bg-yellow-500 border-yellow-600' : 'bg-gray-300 border-gray-400'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-4xl font-bold">{warningCount}</div>
+                        <div className="text-sm font-medium mt-1 opacity-90">Sensor Warnings</div>
+                        <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">live thresholds exceeded</div>
+                      </div>
+                      <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </div>
                   </div>
-                  <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </div>
+                  <div className={`rounded-lg p-6 text-white shadow-md border-b-4 ${criticalCount > 0 ? 'bg-red-500 border-red-600' : 'bg-gray-300 border-gray-400'}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-4xl font-bold">{criticalCount}</div>
+                        <div className="text-sm font-medium mt-1 opacity-90">Sensor Critical</div>
+                        <div className="text-[10px] opacity-75 mt-1 uppercase tracking-wider">live critical thresholds</div>
+                      </div>
+                      <svg className="w-10 h-10 opacity-30" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Information Cards (Active Alerts & Shift Status) */}
