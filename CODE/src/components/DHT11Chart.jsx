@@ -1,5 +1,24 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
+function getDataDomain(data, keys, padding = 0.05) {
+    if (!data || data.length === 0) return ['auto', 'auto']
+    let min = Infinity
+    let max = -Infinity
+    for (const item of data) {
+        for (const key of keys) {
+            const val = item[key]
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                min = Math.min(min, val)
+                max = Math.max(max, val)
+            }
+        }
+    }
+    if (!isFinite(min) || !isFinite(max)) return ['auto', 'auto']
+    const range = max - min
+    const pad = range === 0 ? Math.abs(min) * 0.1 || 1 : range * padding
+    return [Math.floor(min - pad), Math.ceil(max + pad)]
+}
+
 /**
  * DHT11 Chart component showing Temperature and Humidity
  */
@@ -38,7 +57,7 @@ function DHT11Chart({ data, height = 300, isDashboard = false }) {
                         tick={{ fill: '#6b7280' }}
                         yAxisId="temp"
                         orientation="left"
-                        domain={['auto', 'auto']}
+                        domain={getDataDomain(data, ['temperature'])}
                         label={{ value: '°C', angle: -90, position: 'insideLeft', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <YAxis
@@ -47,7 +66,7 @@ function DHT11Chart({ data, height = 300, isDashboard = false }) {
                         tick={{ fill: '#6b7280' }}
                         yAxisId="humidity"
                         orientation="right"
-                        domain={['auto', 'auto']}
+                        domain={getDataDomain(data, ['humidity'])}
                         label={{ value: '%', angle: 90, position: 'insideRight', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <Tooltip

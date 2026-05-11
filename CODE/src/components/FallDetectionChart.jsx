@@ -1,5 +1,24 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
+function getDataDomain(data, keys, padding = 0.05) {
+    if (!data || data.length === 0) return ['auto', 'auto']
+    let min = Infinity
+    let max = -Infinity
+    for (const item of data) {
+        for (const key of keys) {
+            const val = item[key]
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                min = Math.min(min, val)
+                max = Math.max(max, val)
+            }
+        }
+    }
+    if (!isFinite(min) || !isFinite(max)) return ['auto', 'auto']
+    const range = max - min
+    const pad = range === 0 ? Math.abs(min) * 0.1 || 1 : range * padding
+    return [Math.floor(min - pad), Math.ceil(max + pad)]
+}
+
 /**
  * Fall Detection Chart component showing Accelerometer and Gyroscope data
  */
@@ -36,7 +55,7 @@ function FallDetectionChart({ data, height = 300, isDashboard = false }) {
                         stroke="#6b7280"
                         style={{ fontSize }}
                         tick={{ fill: '#6b7280' }}
-                        domain={['auto', 'auto']}
+                        domain={getDataDomain(data, ['accel', 'gyro'])}
                         label={{ value: 'Readings', angle: -90, position: 'insideLeft', style: { fontSize, textAnchor: 'middle' } }}
                     />
                     <Tooltip

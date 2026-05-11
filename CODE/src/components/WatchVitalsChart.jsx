@@ -1,5 +1,24 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
+function getDataDomain(data, keys, padding = 0.05) {
+    if (!data || data.length === 0) return ['auto', 'auto']
+    let min = Infinity
+    let max = -Infinity
+    for (const item of data) {
+        for (const key of keys) {
+            const val = item[key]
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                min = Math.min(min, val)
+                max = Math.max(max, val)
+            }
+        }
+    }
+    if (!isFinite(min) || !isFinite(max)) return ['auto', 'auto']
+    const range = max - min
+    const pad = range === 0 ? Math.abs(min) * 0.1 || 1 : range * padding
+    return [Math.floor(min - pad), Math.ceil(max + pad)]
+}
+
 /**
  * Watch Vitals Chart component showing Heart Rate and SpO2 data
  * Filters out rows where both bpm and spo2 are 0 so lines render correctly.
@@ -76,7 +95,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                             tick={{ fill: '#6b7280' }}
                             yAxisId="bpm"
                             orientation="left"
-                            domain={[0, 'auto']}
+                            domain={getDataDomain(chartData, ['bpm'])}
                             label={{ value: 'BPM', angle: -90, position: 'insideLeft', style: { fontSize, textAnchor: 'middle' } }}
                         />
                         {hasSpo2 && (
@@ -86,7 +105,7 @@ function WatchVitalsChart({ data, height = 300, isDashboard = false }) {
                                 tick={{ fill: '#6b7280' }}
                                 yAxisId="spo2"
                                 orientation="right"
-                                domain={[80, 100]}
+                                domain={getDataDomain(chartData, ['spo2'])}
                                 label={{ value: 'SpO₂%', angle: 90, position: 'insideRight', style: { fontSize, textAnchor: 'middle' } }}
                             />
                         )}

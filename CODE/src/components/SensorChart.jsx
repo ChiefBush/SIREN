@@ -1,5 +1,24 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
+function getDataDomain(data, keys, padding = 0.05) {
+    if (!data || data.length === 0) return ['auto', 'auto']
+    let min = Infinity
+    let max = -Infinity
+    for (const item of data) {
+        for (const key of keys) {
+            const val = item[key]
+            if (val !== null && val !== undefined && !isNaN(val)) {
+                min = Math.min(min, val)
+                max = Math.max(max, val)
+            }
+        }
+    }
+    if (!isFinite(min) || !isFinite(max)) return ['auto', 'auto']
+    const range = max - min
+    const pad = range === 0 ? Math.abs(min) * 0.1 || 1 : range * padding
+    return [Math.floor(min - pad), Math.ceil(max + pad)]
+}
+
 /**
  * Reusable time-series chart component for sensor data
  */
@@ -26,6 +45,7 @@ function SensorChart({ data, dataKey, name, color, unit = '', height = 300 }) {
                     <YAxis
                         stroke="#6b7280"
                         style={{ fontSize: '12px' }}
+                        domain={getDataDomain(data, [dataKey])}
                         label={{ value: unit, angle: -90, position: 'insideLeft', style: { fontSize: '12px' } }}
                     />
                     <Tooltip
