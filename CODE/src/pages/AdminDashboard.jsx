@@ -30,6 +30,7 @@ function AdminDashboard({ onLogout }) {
   const [emergencyNotifications, setEmergencyNotifications] = useState([])
   const lastEmergencyIncidentRef = useRef(null)
   const lastAlertedEmergencyIdRef = useRef(null) // tracks last emergency row ID we showed the modal for
+  const lastEmergencyIncidentTimeRef = useRef(0) // 5-minute cooldown for incident creation
 
   // ML Predictions
   const { predictions, latestPrediction, loading: predictionsLoading } = usePredictions(null, 0.85)
@@ -39,11 +40,42 @@ function AdminDashboard({ onLogout }) {
   const menuRef = useRef(null)
 
   // Auto-create a critical incident when emergency=true is detected
+  // COOLDOWN: Only creates one emergency incident per 5 minutes
   const createEmergencyIncident = async (sensorRow) => {
+    const EMERGENCY_COOLDOWN_MS = 5 * 60 * 1000 // 5 minutes
+    const now = Date.now()
+
+    // Skip if device is offline
+    if (!sensorRow?.wristband_connected && sensorRow?.wristband_connected !== undefined) {
+      console.log('[SIREN] Admin: Skipping emergency incident — wristband offline')
+      return
+    }
+
+    // Cooldown gate
+    if (now - lastEmergencyIncidentTimeRef.current < EMERGENCY_COOLDOWN_MS) {
+      console.log('[SIREN] Admin: Emergency incident cooldown active — skipping')
+      return
+    }
+
     try {
       const dedupeKey = String(sensorRow?.id || sensorRow?.created_at || sensorRow?.Timestamp || Date.now())
       if (lastEmergencyIncidentRef.current === dedupeKey) return
       lastEmergencyIncidentRef.current = dedupeKey
+
+      // Check if there's already an active emergency incident within cooldown
+      const { data: existingIncidents, error: checkError } = await supabase
+        .from('incidents')
+        .select('id')
+        .eq('status', 'reported')
+        .gte('reported_at', new Date(now - EMERGENCY_COOLDOWN_MS).toISOString())
+        .limit(1)
+
+      if (checkError) {
+        console.error('[SIREN] Admin: Error checking existing emergency incidents:', checkError)
+      } else if (existingIncidents && existingIncidents.length > 0) {
+        console.log('[SIREN] Admin: Active emergency incident already exists within cooldown — skipping')
+        return
+      }
 
       const { data: { user: authUser } } = await supabase.auth.getUser()
       const { error } = await supabase.from('incidents').insert({
@@ -58,6 +90,7 @@ function AdminDashboard({ onLogout }) {
       if (error) {
         console.error('[SIREN] Admin: Failed to auto-create emergency incident:', error)
       } else {
+        lastEmergencyIncidentTimeRef.current = now
         console.log('[SIREN] Admin: Emergency incident created successfully')
       }
     } catch (err) {
@@ -89,6 +122,35 @@ function AdminDashboard({ onLogout }) {
     })
   }
 
+  // --- Emergency acknowledgment persistence ---
+  const getAcknowledgedEmergencies = () => {
+    try {
+      return JSON.parse(localStorage.getItem('siren-acknowledged-emergencies') || '[]')
+    } catch {
+      return []
+    }
+  }
+
+  const addAcknowledgedEmergency = (rowId) => {
+    try {
+      const list = getAcknowledgedEmergencies()
+      if (!list.includes(rowId)) {
+        list.push(rowId)
+        if (list.length > 100) list.shift()
+        localStorage.setItem('siren-acknowledged-emergencies', JSON.stringify(list))
+      }
+    } catch (e) {
+      console.error('[SIREN] Failed to persist acknowledged emergency:', e)
+    }
+  }
+
+  const handleEmergencyAcknowledge = () => {
+    const rowId = lastAlertedEmergencyIdRef.current
+    if (rowId) addAcknowledgedEmergency(rowId)
+    setEmergencyActive(false)
+    setEmergencyAcknowledged(true)
+  }
+
   useEffect(() => {
     if (latestPrediction) {
       if (!lastMLPredictionIdRef.current) {
@@ -108,7 +170,35 @@ function AdminDashboard({ onLogout }) {
     fetchAllUsers()
     fetchActivityLogs()
 
-    // --- Emergency polling (runs every 15s — reliable even without Supabase Realtime) ---
+    const acknowledged = getAcknowledgedEmergencies()
+
+    // --- Check for any unacknowledged emergency on page load ---
+    const checkRecentUnacknowledgedEmergency = async () => {
+      try {
+        const { data, error } = await sensorSupabase
+          .from('sensor_data')
+          .select('*')
+          .eq('emergency', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (error || !data) return
+
+        const rowId = String(data?.id || data?.created_at || '')
+        if (!acknowledged.includes(rowId)) {
+          lastAlertedEmergencyIdRef.current = rowId
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false)
+          showEmergencyNotification()
+          createEmergencyIncident(data)
+        }
+      } catch (e) {
+        console.error('[SIREN] Admin: Recent emergency check failed:', e)
+      }
+    }
+
+    // --- Emergency polling (runs every 15s) ---
     const pollEmergency = async () => {
       try {
         const { data, error } = await sensorSupabase
@@ -119,7 +209,6 @@ function AdminDashboard({ onLogout }) {
           .single()
 
         if (error) {
-          // Fallback: try Timestamp (capital T)
           const { data: data2, error: error2 } = await sensorSupabase
             .from('sensor_data')
             .select('*')
@@ -131,11 +220,10 @@ function AdminDashboard({ onLogout }) {
             console.error('[SIREN] Admin: Emergency poll failed:', error, error2)
             return
           }
-          console.log('[SIREN] Admin: Emergency poll row:', data2)
           const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
           if (isEmergency) {
             const rowId = String(data2?.id || data2?.created_at || '')
-            if (rowId !== lastAlertedEmergencyIdRef.current) {
+            if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
               lastAlertedEmergencyIdRef.current = rowId
               setEmergencyActive(true)
               setEmergencyAcknowledged(false)
@@ -146,11 +234,10 @@ function AdminDashboard({ onLogout }) {
           return
         }
 
-        console.log('[SIREN] Admin: Emergency poll row:', data)
         const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
         if (isEmergency) {
           const rowId = String(data?.id || data?.created_at || '')
-          if (rowId !== lastAlertedEmergencyIdRef.current) {
+          if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
             lastAlertedEmergencyIdRef.current = rowId
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
@@ -163,6 +250,7 @@ function AdminDashboard({ onLogout }) {
       }
     }
 
+    checkRecentUnacknowledgedEmergency()
     pollEmergency()
     const emergencyPollInterval = setInterval(pollEmergency, 15000)
 
@@ -177,7 +265,7 @@ function AdminDashboard({ onLogout }) {
         console.log('[SIREN] Admin: Realtime emergency event:', payload.new)
         if (payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1) {
           const rowId = String(payload.new?.id || payload.new?.created_at || '')
-          if (rowId !== lastAlertedEmergencyIdRef.current) {
+          if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
             lastAlertedEmergencyIdRef.current = rowId
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
@@ -926,7 +1014,7 @@ function AdminDashboard({ onLogout }) {
       {/* Emergency SOS Popup Alert */}
       <EmergencyAlertModal
         isOpen={emergencyActive && !emergencyAcknowledged}
-        onDismiss={() => setEmergencyAcknowledged(true)}
+        onDismiss={handleEmergencyAcknowledge}
       />
     </div>
   )

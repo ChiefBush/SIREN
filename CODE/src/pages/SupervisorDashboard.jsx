@@ -276,6 +276,35 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
     })
   }
 
+  // --- Emergency acknowledgment persistence ---
+  const getAcknowledgedEmergencies = () => {
+    try {
+      return JSON.parse(localStorage.getItem('siren-acknowledged-emergencies') || '[]')
+    } catch {
+      return []
+    }
+  }
+
+  const addAcknowledgedEmergency = (rowId) => {
+    try {
+      const list = getAcknowledgedEmergencies()
+      if (!list.includes(rowId)) {
+        list.push(rowId)
+        if (list.length > 100) list.shift()
+        localStorage.setItem('siren-acknowledged-emergencies', JSON.stringify(list))
+      }
+    } catch (e) {
+      console.error('[SIREN] Failed to persist acknowledged emergency:', e)
+    }
+  }
+
+  const handleEmergencyAcknowledge = () => {
+    const rowId = lastAlertedEmergencyIdRef.current
+    if (rowId) addAcknowledgedEmergency(rowId)
+    setEmergencyActive(false)
+    setEmergencyAcknowledged(true)
+  }
+
   useEffect(() => {
     if (latestPrediction) {
       if (!lastMLPredictionIdRef.current) {
@@ -367,8 +396,35 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       })
       .subscribe()
 
+    const acknowledged = getAcknowledgedEmergencies()
+
+    // --- Check for any unacknowledged emergency on page load ---
+    const checkRecentUnacknowledgedEmergency = async () => {
+      try {
+        const { data, error } = await sensorSupabase
+          .from('sensor_data')
+          .select('*')
+          .eq('emergency', true)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single()
+
+        if (error || !data) return
+
+        const rowId = String(data?.id || data?.created_at || '')
+        if (!acknowledged.includes(rowId)) {
+          lastAlertedEmergencyIdRef.current = rowId
+          setEmergencyActive(true)
+          setEmergencyAcknowledged(false)
+          showEmergencyNotification()
+          createEmergencyIncident(data)
+        }
+      } catch (e) {
+        console.error('[SIREN] Recent emergency check failed:', e)
+      }
+    }
+
     // --- Emergency polling (runs every 15s, more reliable than realtime alone) ---
-    // Fetches the single most recent sensor_data row and checks if emergency is truthy.
     const pollEmergency = async () => {
       try {
         const { data, error } = await sensorSupabase
@@ -379,7 +435,6 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           .single()
 
         if (error) {
-          // Fallback: try ordering by 'Timestamp' in case created_at doesn't exist
           const { data: data2, error: error2 } = await sensorSupabase
             .from('sensor_data')
             .select('*')
@@ -392,13 +447,11 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
             return
           }
 
-          console.log('[SIREN] Emergency poll row (Timestamp order):', data2)
           const isEmergency = data2?.emergency === true || data2?.emergency === 'true' || data2?.emergency === 1
-          // Pass isEmergency so warning log is skipped if this row is an emergency
           createSensorWarningIncident(data2, isEmergency)
           if (isEmergency) {
             const rowId = String(data2?.id || data2?.created_at || '')
-            if (rowId !== lastAlertedEmergencyIdRef.current) {
+            if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
               lastAlertedEmergencyIdRef.current = rowId
               setEmergencyActive(true)
               setEmergencyAcknowledged(false)
@@ -409,14 +462,11 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
           return
         }
 
-        console.log('[SIREN] Emergency poll row:', data)
         const isEmergency = data?.emergency === true || data?.emergency === 'true' || data?.emergency === 1
-        // Pass isEmergency so warning log is skipped if this row is an emergency
         createSensorWarningIncident(data, isEmergency)
         if (isEmergency) {
-          // Only alert if this is a NEW emergency row (different id from the last one we showed)
           const rowId = String(data?.id || data?.created_at || '')
-          if (rowId !== lastAlertedEmergencyIdRef.current) {
+          if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
             lastAlertedEmergencyIdRef.current = rowId
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
@@ -429,11 +479,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       }
     }
 
-    // Run immediately on mount, then every 15 seconds
+    checkRecentUnacknowledgedEmergency()
     pollEmergency()
     const emergencyPollInterval = setInterval(pollEmergency, 15000)
 
-    // Also keep realtime as a bonus (fires immediately if Supabase Realtime is enabled)
     const emergencyChannel = sensorSupabase
       .channel('supervisor-emergency-alerts')
       .on('postgres_changes', {
@@ -443,11 +492,10 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       }, (payload) => {
         console.log('[SIREN] Realtime emergency event received:', payload.new)
         const isEmergencyRow = payload.new?.emergency === true || payload.new?.emergency === 'true' || payload.new?.emergency === 1
-        // Pass isEmergencyRow so warning log is skipped if this row is an emergency
         createSensorWarningIncident(payload.new, isEmergencyRow)
         if (isEmergencyRow) {
           const rowId = String(payload.new?.id || payload.new?.created_at || '')
-          if (rowId !== lastAlertedEmergencyIdRef.current) {
+          if (rowId !== lastAlertedEmergencyIdRef.current && !acknowledged.includes(rowId)) {
             lastAlertedEmergencyIdRef.current = rowId
             setEmergencyActive(true)
             setEmergencyAcknowledged(false)
@@ -1102,7 +1150,7 @@ function SupervisorDashboard({ onLogout, userId, isAdminView = false }) {
       {/* Emergency SOS Popup Alert */}
       <EmergencyAlertModal
         isOpen={emergencyActive && !emergencyAcknowledged}
-        onDismiss={() => setEmergencyAcknowledged(true)}
+        onDismiss={handleEmergencyAcknowledge}
       />
     </div>
   )
