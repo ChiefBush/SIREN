@@ -107,7 +107,7 @@ export function useSensorData(userId = null, userEmail = null, useRealData = tru
                         mq9: parseFloat(latest.mq9_analog || latest.mq9) || 0.0,
                         mq135: parseFloat(latest.mq135_analog || latest.mq135) || 0.0,
                         temperature: parseFloat(latest.temperature || latest.dht11_temp) || 0.0,
-                        humidity: parseFloat(latest.humidity) || 0.0,
+                        humidity: parseFloat(latest.humidity || latest.dht11_humidity) || 0.0,
                         accel: parseFloat(latest.motion_accel || latest.accel) || 0.0,
                         gyro: parseFloat(latest.motion_gyro || latest.gyro) || 0.0,
                         bpm: parseInt(latest.bpm) || 0,
@@ -139,7 +139,7 @@ export function useSensorData(userId = null, userEmail = null, useRealData = tru
                 const newMq9 = parseFloat(latest.mq9_analog || latest.mq9) || 0.0
                 const newMq135 = parseFloat(latest.mq135_analog || latest.mq135) || 0.0
                 const newTemp = parseFloat(latest.temperature || latest.dht11_temp) || 0.0
-                const newHum = parseFloat(latest.humidity) || 0.0
+                const newHum = parseFloat(latest.humidity || latest.dht11_humidity) || 0.0
                 const newAccel = parseFloat(latest.motion_accel || latest.accel) || 0.0
                 const newGyro = parseFloat(latest.motion_gyro || latest.gyro) || 0.0
                 const newBpm = parseInt(latest.bpm) || 0
@@ -211,7 +211,7 @@ export function useSensorData(userId = null, userEmail = null, useRealData = tru
                         mq9: parseFloat(item.mq9_analog || item.mq9) || 0.0,
                         mq135: parseFloat(item.mq135_analog || item.mq135) || 0.0,
                         temperature: parseFloat(item.temperature || item.dht11_temp) || 0.0,
-                        humidity: parseFloat(item.humidity) || 0.0,
+                        humidity: parseFloat(item.humidity || item.dht11_humidity) || 0.0,
                         accel: parseFloat(item.motion_accel || item.accel) || 0.0,
                         gyro: parseFloat(item.motion_gyro || item.gyro) || 0.0,
                         bpm: parseInt(item.bpm) || 0,

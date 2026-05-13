@@ -3,7 +3,14 @@ import { supabase } from '../lib/supabase'
 
 export default function WatchMessageDisplay({ userId }) {
     const [latestMessage, setLatestMessage] = useState(null)
-    const [dismissedIds, setDismissedIds] = useState(new Set())
+    const [dismissedIds, setDismissedIds] = useState(() => {
+        try {
+            const stored = localStorage.getItem('siren-dismissed-message-ids')
+            return stored ? new Set(JSON.parse(stored)) : new Set()
+        } catch {
+            return new Set()
+        }
+    })
 
     useEffect(() => {
         if (!userId) return
@@ -76,17 +83,26 @@ export default function WatchMessageDisplay({ userId }) {
         const messageId = latestMessage.id
 
         // Mark as read in DB
-        try {
-            await supabase
-                .from('chat_messages')
-                .update({ delivery_status: 'read' })
-                .eq('id', messageId)
-        } catch (err) {
-            console.error('Error marking message as read', err)
+        const { error } = await supabase
+            .from('chat_messages')
+            .update({ delivery_status: 'read' })
+            .eq('id', messageId)
+
+        if (error) {
+            console.error('Error marking message as read:', error)
+            return
         }
 
-        // Track dismissed ID so it never reappears in this session
-        setDismissedIds(prev => new Set(prev).add(messageId))
+        // Track dismissed ID locally and persist to localStorage
+        setDismissedIds(prev => {
+            const next = new Set(prev).add(messageId)
+            try {
+                localStorage.setItem('siren-dismissed-message-ids', JSON.stringify([...next]))
+            } catch (e) {
+                console.error('Failed to persist dismissed message IDs:', e)
+            }
+            return next
+        })
         setLatestMessage(null)
     }
 

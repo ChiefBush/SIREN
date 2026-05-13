@@ -146,18 +146,26 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
   }
 
 
-  // Calculate summary counts
-  const mq2Status = getSensorStatus(sensorData.mq2, 300, 500)
-  const mq9Status = getSensorStatus(sensorData.mq9, 200, 400)
-  const mq135Status = getSensorStatus(sensorData.mq135, 400, 700)
-  const tempStatus = getSensorStatus(sensorData.temperature, 35, 45)
-  const humidityStatus = getSensorStatus(sensorData.humidity, 80, 95)
+  // Calculate sensor statuses. Treat zero / no-data as offline instead of safe.
+  const getSensorStatusWithOffline = (value, warning, critical) => {
+    if (value === 0 || value == null || Number.isNaN(value)) {
+      return { status: 'offline', color: 'gray', text: 'Offline' }
+    }
+    return getSensorStatus(value, warning, critical)
+  }
+
+  const mq2Status = getSensorStatusWithOffline(sensorData.mq2, 300, 500)
+  const mq9Status = getSensorStatusWithOffline(sensorData.mq9, 200, 400)
+  const mq135Status = getSensorStatusWithOffline(sensorData.mq135, 400, 700)
+  const tempStatus = getSensorStatusWithOffline(sensorData.temperature, 35, 45)
+  const humidityStatus = getSensorStatusWithOffline(sensorData.humidity, 80, 95)
 
   const safeCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'safe').length
   const warningCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'warning').length
   const criticalCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'critical').length
+  const offlineCount = [mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'offline').length
 
-  const allSystemsNormal = warningCount === 0 && criticalCount === 0
+  const allSystemsNormal = safeCount > 0 && warningCount === 0 && criticalCount === 0
 
   const formatTime = (date) => {
     return date.toLocaleTimeString('en-US', {
