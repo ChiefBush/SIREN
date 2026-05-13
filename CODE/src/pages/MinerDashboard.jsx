@@ -16,12 +16,12 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
   const [activePage, setActivePage] = useState('dashboard')
   const [user, setUser] = useState(null)
   const [userProfile, setUserProfile] = useState(null)
-  const [currentTime, setCurrentTime] = useState(new Date())
+  const [, setCurrentTime] = useState(new Date())
   const [isActive, setIsActive] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   // Fetch sensor data using the shared hook
-  const { sensorData, sensorHistory, loading: sensorsLoading, getSensorStatus } = useSensorData(userId || user?.id, userProfile?.email)
+  const { sensorData, sensorHistory, getSensorStatus } = useSensorData(userId || user?.id, userProfile?.email)
 
   // Fetch user profile - use userId prop if provided, else use logged-in user
   useEffect(() => {

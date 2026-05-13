@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function ChatFloatingButton({ currentUser, onActivityLog }) {
@@ -74,29 +74,7 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
     }, [currentUser?.id])
 
     // ── Fetch miners ──────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (isOpen) fetchMiners()
-    }, [isOpen])
-
-    // ── Fetch messages + subscribe when miner selected ────────────────────────
-    useEffect(() => {
-        if (selectedMiner) {
-            exitSelectMode()
-            fetchMessages(selectedMiner.id)
-            subscribeToMessages(selectedMiner.id)
-        }
-        return () => { supabase.removeAllChannels() }
-    }, [selectedMiner])
-
-    // ── Auto-scroll ───────────────────────────────────────────────────────────
-    useEffect(() => {
-        if (!selectMode) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-        }
-    }, [messages, selectMode])
-
-    // ── Data functions ────────────────────────────────────────────────────────
-    const fetchMiners = async () => {
+    const fetchMiners = useCallback(async () => {
         try {
             const { data, error } = await supabase
                 .from('users')
@@ -108,9 +86,14 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
         } catch (error) {
             console.error('Error fetching miners:', error)
         }
-    }
+    }, [])
 
-    const fetchMessages = async (minerId) => {
+    useEffect(() => {
+        if (isOpen) fetchMiners()
+    }, [isOpen, fetchMiners])
+
+    // ── Fetch messages ──────────────────────────────────────────────────────
+    const fetchMessages = useCallback(async (minerId) => {
         try {
             const { data, error } = await supabase
                 .from('chat_messages')
@@ -122,24 +105,62 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
         } catch (error) {
             console.error('Error fetching messages:', error)
         }
-    }
+    }, [])
 
-    const subscribeToMessages = (minerId) => {
+    // ── Subscribe to messages ───────────────────────────────────────────────
+    const subscribeToMessages = useCallback((minerId) => {
+        // Listen for ALL chat messages - filtering happens in the callback
         const channel = supabase
             .channel(`chat:${currentUser.id}:${minerId}`)
             .on('postgres_changes', {
                 event: 'INSERT',
                 schema: 'public',
-                table: 'chat_messages',
-                filter: `user_id=eq.${minerId}`
+                table: 'chat_messages'
             }, (payload) => {
-                if (payload.new.sender_role === 'miner') {
-                    setMessages(prev => [...prev, payload.new])
+                const newMsg = payload.new
+                // Only process messages for the currently selected miner
+                if (newMsg.user_id === minerId) {
+                    setMessages(prev => {
+                        // Avoid duplicates
+                        if (prev.some(m => m.id === newMsg.id)) return prev
+                        return [...prev, newMsg]
+                    })
                 }
             })
-            .subscribe()
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'chat_messages'
+            }, (payload) => {
+                const updatedMsg = payload.new
+                if (updatedMsg.user_id === minerId) {
+                    setMessages(prev =>
+                        prev.map(m => m.id === updatedMsg.id ? updatedMsg : m)
+                    )
+                }
+            })
+            .subscribe((status) => {
+                console.log('[ChatFloatingButton] Subscription status:', status)
+            })
         return channel
-    }
+    }, [currentUser?.id])
+
+    // ── Fetch messages + subscribe when miner selected ────────────────────────
+    useEffect(() => {
+        if (selectedMiner) {
+            exitSelectMode()
+            fetchMessages(selectedMiner.id)
+            subscribeToMessages(selectedMiner.id)
+        }
+        return () => { supabase.removeAllChannels() }
+    }, [selectedMiner, fetchMessages, subscribeToMessages])
+
+    // ── Auto-scroll ───────────────────────────────────────────────────────────
+    useEffect(() => {
+        if (!selectMode) {
+            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+        }
+    }, [messages, selectMode])
 
     // ── Single delete (hover trash icon) ─────────────────────────────────────
     const handleDeleteMessage = async (msgId) => {
@@ -227,17 +248,19 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
             setMessage('')
             setLoading(false)
 
-            // After 2s, mark as 'sent' regardless of central node status so the clock doesn't spin forever
+            // After 5s, mark as 'sent' regardless of central node status so the clock doesn't spin forever
             const uiTimeoutId = setTimeout(() => {
                 setMessages(prev => prev.map(m => m.id === savedMsgId && m.api_success === null ? { ...m, api_success: true } : m))
-            }, 2000)
+            }, 5000)
 
             // Fire HTTP call to central node in the background (non-blocking)
             try {
                 const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.2'
+                console.log('[SIREN] Sending message to central node at:', `${centralNodeUrl}/send`)
                 const controller = new AbortController()
-                // ESP32 takes 9-12s to send LoRa retries before it returns HTTP 200. Give it 15s.
-                const abortTimeoutId = setTimeout(() => controller.abort(), 15000)
+                // ESP32 does 3 LoRa retries with 2-4s backoff each → takes ~20s total.
+                // Give it 30s so we get the real HTTP 200 instead of timing out.
+                const abortTimeoutId = setTimeout(() => controller.abort(), 30000)
 
                 const response = await fetch(`${centralNodeUrl}/send`, {
                     method: 'POST',
@@ -246,23 +269,25 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                     signal: controller.signal,
                 })
                 clearTimeout(abortTimeoutId)
-                clearTimeout(uiTimeoutId) // Cancel the 2s fallback since we got a real response
+                clearTimeout(uiTimeoutId) // Cancel the 5s fallback since we got a real response
 
                 if (response.ok) {
-                    console.log('[SIREN] Message delivered to central node successfully.')
+                    console.log('[SIREN] ✓ Message delivered to central node successfully. Status:', response.status)
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: true } : m))
                 } else {
-                    console.error('[SIREN] Central node returned error:', response.status)
+                    const errText = await response.text().catch(() => '')
+                    console.error('[SIREN] ✗ Central node returned error:', response.status, errText)
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))
                 }
             } catch (apiError) {
                 clearTimeout(uiTimeoutId)
                 if (apiError.name === 'AbortError') {
-                    console.warn('[SIREN] HTTP request to central node timed out after 15s (likely still delivered via LoRa).')
+                    console.warn('[SIREN] ⏱ HTTP request to central node timed out after 30s (LoRa retries may still be in progress).')
                     // Show as sent — don't leave user hanging with a spinning clock
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: true } : m))
                 } else {
-                    console.error('[SIREN] Error sending to central node:', apiError)
+                    console.error('[SIREN] ✗ Error sending to central node:', apiError.message || apiError)
+                    console.error('[SIREN] Check: Is your computer on the same WiFi as the ESP32? Is the IP correct?')
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))
                 }
             }

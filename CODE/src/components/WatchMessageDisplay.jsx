@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function WatchMessageDisplay({ userId }) {
     const [latestMessage, setLatestMessage] = useState(null)
-    const [dismissedIds, setDismissedIds] = useState(() => {
+    // Use a ref for dismissed IDs so it doesn't trigger re-subscriptions
+    const dismissedIdsRef = useRef(() => {
         try {
             const stored = localStorage.getItem('siren-dismissed-message-ids')
             return stored ? new Set(JSON.parse(stored)) : new Set()
@@ -12,45 +13,11 @@ export default function WatchMessageDisplay({ userId }) {
         }
     })
 
-    useEffect(() => {
+    const fetchLatestMessage = useCallback(async () => {
         if (!userId) return
-
-        // Fetch initial unread message
-        fetchLatestMessage()
-
-        // Subscribe to new messages
-        const channel = supabase
-            .channel(`watch-messages:${userId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'chat_messages',
-                    filter: `user_id=eq.${userId}`
-                },
-                async (payload) => {
-                    if (payload.new.sender_role === 'miner') return; // Ignore messages sent by miner
-                    if (dismissedIds.has(payload.new.id)) return; // Skip previously dismissed
-
-                    console.log('New message received:', payload)
-
-                    setLatestMessage({
-                        ...payload.new,
-                        sender_name: payload.new.sender_role === 'admin' ? 'Admin' : 'Supervisor'
-                    })
-                }
-            )
-            .subscribe()
-
-        return () => {
-            supabase.removeChannel(channel)
-        }
-    }, [userId, dismissedIds])
-
-    const fetchLatestMessage = async () => {
         try {
-            // Get the most recent UNREAD message
+            // Get the most recent UNREAD message (delivery_status = 'sent')
+            // Messages marked as 'read' will NOT appear here
             const { data, error } = await supabase
                 .from('chat_messages')
                 .select('*')
@@ -66,44 +33,115 @@ export default function WatchMessageDisplay({ userId }) {
                 return
             }
 
-            if (data && !dismissedIds.has(data.id)) {
+            if (data && !dismissedIdsRef.current.has(data.id)) {
                 setLatestMessage({
                     ...data,
                     sender_name: data.sender_role === 'admin' ? 'Admin' : 'Supervisor'
                 })
+            } else if (!data) {
+                // No unread messages found
+                setLatestMessage(null)
             }
         } catch (err) {
             console.error('Error fetching messages:', err)
         }
-    }
+    }, [userId])
+
+    useEffect(() => {
+        if (!userId) return
+
+        // Fetch initial unread message
+        fetchLatestMessage()
+
+        // Subscribe to new messages - listen for INSERTS on chat_messages table
+        const channel = supabase
+            .channel(`watch-messages:${userId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'chat_messages'
+                },
+                (payload) => {
+                    const newMsg = payload.new
+                    // Only process messages for this user, sent by supervisor/admin
+                    if (newMsg.user_id !== userId) return
+                    if (newMsg.sender_role === 'miner') return
+                    if (dismissedIdsRef.current.has(newMsg.id)) return
+
+                    console.log('[WatchMessageDisplay] New message received:', newMsg)
+
+                    setLatestMessage({
+                        ...newMsg,
+                        sender_name: newMsg.sender_role === 'admin' ? 'Admin' : 'Supervisor'
+                    })
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'chat_messages'
+                },
+                (payload) => {
+                    const updatedMsg = payload.new
+                    // Clear latest message if it was marked as read
+                    if (updatedMsg.delivery_status === 'read') {
+                        setLatestMessage(prev => {
+                            if (prev && prev.id === updatedMsg.id) return null
+                            return prev
+                        })
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log('[WatchMessageDisplay] Subscription status:', status)
+            })
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [userId, fetchLatestMessage])
 
     const handleDismiss = async () => {
         if (!latestMessage) return
 
         const messageId = latestMessage.id
 
-        // Mark as read in DB
+        // Optimistically dismiss from UI immediately
+        dismissedIdsRef.current.add(messageId)
+        setLatestMessage(null)
+
+        // Persist dismissed ID to localStorage so it survives reloads
+        try {
+            const stored = localStorage.getItem('siren-dismissed-message-ids')
+            const list = stored ? JSON.parse(stored) : []
+            if (!list.includes(messageId)) {
+                list.push(messageId)
+                if (list.length > 100) list.shift()
+                localStorage.setItem('siren-dismissed-message-ids', JSON.stringify(list))
+            }
+        } catch (e) {
+            console.error('Failed to persist dismissed message IDs:', e)
+        }
+
+        // Mark as read in DB — this is the persistent change that survives reload
         const { error } = await supabase
             .from('chat_messages')
             .update({ delivery_status: 'read' })
             .eq('id', messageId)
 
         if (error) {
-            console.error('Error marking message as read:', error)
-            return
+            console.error('[WatchMessageDisplay] Failed to mark message as read:', error)
+            // Revert: remove from dismissed so it can show again
+            dismissedIdsRef.current.delete(messageId)
+            // Re-fetch to show it again since the DB update failed
+            fetchLatestMessage()
+        } else {
+            console.log('[WatchMessageDisplay] Message', messageId, 'marked as read successfully')
         }
-
-        // Track dismissed ID locally and persist to localStorage
-        setDismissedIds(prev => {
-            const next = new Set(prev).add(messageId)
-            try {
-                localStorage.setItem('siren-dismissed-message-ids', JSON.stringify([...next]))
-            } catch (e) {
-                console.error('Failed to persist dismissed message IDs:', e)
-            }
-            return next
-        })
-        setLatestMessage(null)
     }
 
     if (!latestMessage) return null

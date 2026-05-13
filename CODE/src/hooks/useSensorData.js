@@ -78,7 +78,7 @@ export function useSensorData(userId = null, userEmail = null, useRealData = tru
         }
         checkTargetMiner()
         return () => { mounted = false }
-    }, [userId, normalizedEmail, useRealData])
+    }, [userId, normalizedEmail, userEmail, useRealData])
 
     // Fetch latest sensor data
     useEffect(() => {
