@@ -1,14 +1,16 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function WatchMessageDisplay({ userId }) {
     const [latestMessage, setLatestMessage] = useState(null)
-    const [dismissedIds, setDismissedIds] = useState(new Set())
+    // Use a ref for dismissed IDs so it doesn't trigger re-subscriptions
+    const dismissedIdsRef = useRef(new Set())
 
     const fetchLatestMessage = useCallback(async () => {
         if (!userId) return
         try {
-            // Get the most recent UNREAD message
+            // Get the most recent UNREAD message (delivery_status = 'sent')
+            // Messages marked as 'read' will NOT appear here
             const { data, error } = await supabase
                 .from('chat_messages')
                 .select('*')
@@ -24,16 +26,19 @@ export default function WatchMessageDisplay({ userId }) {
                 return
             }
 
-            if (data && !dismissedIds.has(data.id)) {
+            if (data && !dismissedIdsRef.current.has(data.id)) {
                 setLatestMessage({
                     ...data,
                     sender_name: data.sender_role === 'admin' ? 'Admin' : 'Supervisor'
                 })
+            } else if (!data) {
+                // No unread messages found
+                setLatestMessage(null)
             }
         } catch (err) {
             console.error('Error fetching messages:', err)
         }
-    }, [userId, dismissedIds])
+    }, [userId])
 
     useEffect(() => {
         if (!userId) return
@@ -51,12 +56,12 @@ export default function WatchMessageDisplay({ userId }) {
                     schema: 'public',
                     table: 'chat_messages'
                 },
-                async (payload) => {
+                (payload) => {
                     const newMsg = payload.new
                     // Only process messages for this user, sent by supervisor/admin
                     if (newMsg.user_id !== userId) return
                     if (newMsg.sender_role === 'miner') return
-                    if (dismissedIds.has(newMsg.id)) return
+                    if (dismissedIdsRef.current.has(newMsg.id)) return
 
                     console.log('[WatchMessageDisplay] New message received:', newMsg)
 
@@ -73,11 +78,14 @@ export default function WatchMessageDisplay({ userId }) {
                     schema: 'public',
                     table: 'chat_messages'
                 },
-                async (payload) => {
+                (payload) => {
                     const updatedMsg = payload.new
                     // Clear latest message if it was marked as read
-                    if (latestMessage && updatedMsg.id === latestMessage.id && updatedMsg.delivery_status === 'read') {
-                        setLatestMessage(null)
+                    if (updatedMsg.delivery_status === 'read') {
+                        setLatestMessage(prev => {
+                            if (prev && prev.id === updatedMsg.id) return null
+                            return prev
+                        })
                     }
                 }
             )
@@ -88,26 +96,38 @@ export default function WatchMessageDisplay({ userId }) {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [userId, dismissedIds, fetchLatestMessage, latestMessage])
+    }, [userId, fetchLatestMessage])
 
     const handleDismiss = async () => {
         if (!latestMessage) return
 
         const messageId = latestMessage.id
 
-        // Mark as read in DB
+        // Optimistically dismiss from UI immediately
+        dismissedIdsRef.current.add(messageId)
+        setLatestMessage(null)
+
+        // Mark as read in DB — this is the persistent change that survives reload
         try {
-            await supabase
+            const { error } = await supabase
                 .from('chat_messages')
                 .update({ delivery_status: 'read' })
                 .eq('id', messageId)
-        } catch (err) {
-            console.error('Error marking message as read', err)
-        }
 
-        // Track dismissed ID so it never reappears in this session
-        setDismissedIds(prev => new Set(prev).add(messageId))
-        setLatestMessage(null)
+            if (error) {
+                console.error('[WatchMessageDisplay] Failed to mark message as read:', error)
+                // Revert: remove from dismissed so it can show again
+                dismissedIdsRef.current.delete(messageId)
+                // Re-fetch to show it again since the DB update failed
+                fetchLatestMessage()
+            } else {
+                console.log('[WatchMessageDisplay] Message', messageId, 'marked as read successfully')
+            }
+        } catch (err) {
+            console.error('[WatchMessageDisplay] Error marking message as read:', err)
+            dismissedIdsRef.current.delete(messageId)
+            fetchLatestMessage()
+        }
     }
 
     if (!latestMessage) return null
