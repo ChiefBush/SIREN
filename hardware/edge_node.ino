@@ -66,14 +66,14 @@
 #define NODE_ID "001"
 
 #define MQ2_DANGER_THRESHOLD 1500
-#define MQ9_DANGER_THRESHOLD 2000
+#define MQ9_DANGER_THRESHOLD 3500
 #define MQ135_DANGER_THRESHOLD 2000
 
 #define FALLBACK_TEMPERATURE 27.0
 #define FALLBACK_HUMIDITY -1.0
 
 #define CALIBRATION_SAMPLES 50
-#define DANGER_MULTIPLIER 1.4
+#define DANGER_MULTIPLIER 2.0
 #define CALIBRATION_DELAY 200
 // Per datasheet: MQ-2 needs 24hr, MQ-9 and MQ-135 need 48hr preheat
 // This flag can be set to true after the device has been powered 48+ hours
@@ -1261,14 +1261,10 @@ void calibrateSensor(int pin, SensorCalibration* cal, String sensorName, int min
   }
   cal->baseline = sum / CALIBRATION_SAMPLES;
   
-  // FIXED: For MQ9 specifically, if baseline is already high, use static threshold
-  if (sensorName == "MQ9" && cal->baseline > (minThreshold * 0.7)) {
-    Serial.printf("\n    ⚠ MQ9 baseline (%.0f) is high - using static threshold\n", cal->baseline);
-    cal->dangerThreshold = minThreshold;
-  } else {
-    float calculatedThreshold = cal->baseline * DANGER_MULTIPLIER;
-    cal->dangerThreshold = (calculatedThreshold > minThreshold) ? calculatedThreshold : minThreshold;
-  }
+  // Calibrate danger threshold as baseline * multiplier, clamped to min threshold.
+  // Higher multiplier (2.0x) provides enough headroom to avoid false positives.
+  float calculatedThreshold = cal->baseline * DANGER_MULTIPLIER;
+  cal->dangerThreshold = (calculatedThreshold > minThreshold) ? calculatedThreshold : minThreshold;
   
   cal->calibrated = true;
   Serial.println(" Done");
@@ -1411,21 +1407,29 @@ void checkAlerts(SensorData data) {
     }
   }
   
-  // MQ9 Alert
-  bool mq9_danger = data.mq9_analog >= MQ9_DANGER_THRESHOLD || 
-                    (mq9_cal.calibrated && data.mq9_analog >= mq9_cal.dangerThreshold);
-  
+  // MQ9 Alert (CO)
+  // Only trigger if sensor is fully preheated, digital pin confirms danger,
+  // AND analog value exceeds threshold. This prevents false positives from
+  // an unpreheated MQ-9 or analog noise.
+  bool mq9_danger = SENSOR_FULLY_PREHEATED && data.mq9_digital &&
+                    (data.mq9_analog >= MQ9_DANGER_THRESHOLD ||
+                     (mq9_cal.calibrated && data.mq9_analog >= mq9_cal.dangerThreshold));
+
   if (mq9_danger) {
     if (lastMQ9Alert == 0 || (now - lastMQ9Alert >= ALERT_COOLDOWN)) {
       Serial.println("!!! MQ9 Danger detected");
-      Serial.printf("    MQ9 analog=%d (static threshold=%d, calibrated=%.0f)\n", 
-                    data.mq9_analog, MQ9_DANGER_THRESHOLD, mq9_cal.dangerThreshold);
+      Serial.printf("    MQ9 analog=%d digital=%s (static threshold=%d, calibrated=%.0f)\n",
+                    data.mq9_analog, data.mq9_digital ? "HIGH" : "LOW",
+                    MQ9_DANGER_THRESHOLD, mq9_cal.dangerThreshold);
       if (audioReady) {
         playAudioFile(CO_ALERT);
-        Serial.println("    ✓ Playing CO alert audio (0003.mp3)");
+        Serial.println("    [OK] Playing CO alert audio (0003.mp3)");
       }
       lastMQ9Alert = now;
     }
+  } else if (!SENSOR_FULLY_PREHEATED && data.mq9_digital) {
+    // Warn in serial log if digital pin is high during warmup, but don't play audio
+    Serial.println("[WARN] MQ9 digital high during warmup - alert suppressed");
   }
   
   // MQ135 Alert
