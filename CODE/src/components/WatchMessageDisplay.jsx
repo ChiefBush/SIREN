@@ -1,47 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function WatchMessageDisplay({ userId }) {
     const [latestMessage, setLatestMessage] = useState(null)
     const [dismissedIds, setDismissedIds] = useState(new Set())
 
-    useEffect(() => {
+    const fetchLatestMessage = useCallback(async () => {
         if (!userId) return
-
-        // Fetch initial unread message
-        fetchLatestMessage()
-
-        // Subscribe to new messages
-        const channel = supabase
-            .channel(`watch-messages:${userId}`)
-            .on(
-                'postgres_changes',
-                {
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'chat_messages',
-                    filter: `user_id=eq.${userId}`
-                },
-                async (payload) => {
-                    if (payload.new.sender_role === 'miner') return; // Ignore messages sent by miner
-                    if (dismissedIds.has(payload.new.id)) return; // Skip previously dismissed
-
-                    console.log('New message received:', payload)
-
-                    setLatestMessage({
-                        ...payload.new,
-                        sender_name: payload.new.sender_role === 'admin' ? 'Admin' : 'Supervisor'
-                    })
-                }
-            )
-            .subscribe()
-
-        return () => {
-            supabase.removeChannel(channel)
-        }
-    }, [userId, dismissedIds])
-
-    const fetchLatestMessage = async () => {
         try {
             // Get the most recent UNREAD message
             const { data, error } = await supabase
@@ -68,7 +33,62 @@ export default function WatchMessageDisplay({ userId }) {
         } catch (err) {
             console.error('Error fetching messages:', err)
         }
-    }
+    }, [userId, dismissedIds])
+
+    useEffect(() => {
+        if (!userId) return
+
+        // Fetch initial unread message
+        fetchLatestMessage()
+
+        // Subscribe to new messages - listen for INSERTS on chat_messages table
+        const channel = supabase
+            .channel(`watch-messages:${userId}`)
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'chat_messages'
+                },
+                async (payload) => {
+                    const newMsg = payload.new
+                    // Only process messages for this user, sent by supervisor/admin
+                    if (newMsg.user_id !== userId) return
+                    if (newMsg.sender_role === 'miner') return
+                    if (dismissedIds.has(newMsg.id)) return
+
+                    console.log('[WatchMessageDisplay] New message received:', newMsg)
+
+                    setLatestMessage({
+                        ...newMsg,
+                        sender_name: newMsg.sender_role === 'admin' ? 'Admin' : 'Supervisor'
+                    })
+                }
+            )
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'chat_messages'
+                },
+                async (payload) => {
+                    const updatedMsg = payload.new
+                    // Clear latest message if it was marked as read
+                    if (latestMessage && updatedMsg.id === latestMessage.id && updatedMsg.delivery_status === 'read') {
+                        setLatestMessage(null)
+                    }
+                }
+            )
+            .subscribe((status) => {
+                console.log('[WatchMessageDisplay] Subscription status:', status)
+            })
+
+        return () => {
+            supabase.removeChannel(channel)
+        }
+    }, [userId, dismissedIds, fetchLatestMessage, latestMessage])
 
     const handleDismiss = async () => {
         if (!latestMessage) return
