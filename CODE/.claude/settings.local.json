@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git ls-tree *)",
+      "Bash(mkdir -p MLPart)",
+      "Bash(git show *)",
+      "Bash(read f *)",
+      "Bash([ ! -e \"MLPart/$f\" ])",
+      "Bash(pip install *)",
+      "Bash(python *)",
+      "Bash(grep -n \"\\\\\\\\u\" MLPart/predict_live_data.py)",
+      "Bash(npm start *)",
+      "Bash(netstat -ano)",
+      "Bash(findstr :3000)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s \"https://kfwngukvlsjjhwslktbn.supabase.co/rest/v1/sensor_data?select=*&order=created_at.desc&limit=1\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmd25ndWt2bHNqamh3c2xrdGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzYwMzksImV4cCI6MjA3Mzk1MjAzOX0.qY_JlPE6g5ewfBodJZYDS6ABFySvEMLgqOhCeQg8U8I\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmd25ndWt2bHNqamh3c2xrdGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzYwMzksImV4cCI6MjA3Mzk1MjAzOX0.qY_JlPE6g5ewfBodJZYDS6ABFySvEMLgqOhCeQg8U8I\")",
+      "Bash(curl -s \"https://dieuqoldqijtpuxfhmtg.supabase.co/rest/v1/ml_predictions?select=*&order=created_at.desc&limit=5\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpZXVxb2xkcWlqdHB1eGZobXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2MzAxMzgsImV4cCI6MjA4MTIwNjEzOH0.0kMyGKLi1oIZBSE6b02a9ZXUQmzuhL8xkiokAXaz8r0\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpZXVxb2xkcWlqdHB1eGZobXRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU2MzAxMzgsImV4cCI6MjA4MTIwNjEzOH0.0kMyGKLi1oIZBSE6b02a9ZXUQmzuhL8xkiokAXaz8r0\")",
+      "Bash(curl -s -X POST \"https://dieuqoldqijtpuxfhmtg.supabase.co/functions/v1/ml-predictions\" -H \"Content-Type: application/json\" -d \"{\\\\\"prediction_type\\\\\":\\\\\"test_validation\\\\\",\\\\\"risk_score\\\\\":0.95,\\\\\"risk_level\\\\\":\\\\\"critical\\\\\",\\\\\"details\\\\\":{\\\\\"source\\\\\":\\\\\"validation_script\\\\\"}}\")",
+      "Bash(findstr LISTENING)",
+      "Bash(curl -s \"https://kfwngukvlsjjhwslktbn.supabase.co/rest/v1/sensor_data?select=*&order=created_at.desc&limit=3\" -H \"apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmd25ndWt2bHNqamh3c2xrdGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzYwMzksImV4cCI6MjA3Mzk1MjAzOX0.qY_JlPE6g5ewfBodJZYDS6ABFySvEMLgqOhCeQg8U8I\" -H \"Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmd25ndWt2bHNqamh3c2xrdGJuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgzNzYwMzksImV4cCI6MjA3Mzk1MjAzOX0.qY_JlPE6g5ewfBodJZYDS6ABFySvEMLgqOhCeQg8U8I\")"
+    ]
+  }
+}

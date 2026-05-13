@@ -4,7 +4,8 @@
   "description": "SIREN: Sensor based indicator for risk in environmental notification",
   "private": true,
   "scripts": {
-    "start": "concurrently \"react-scripts start\" \"cd ../MLPart && source venv/bin/activate && python3 predict_live_data.py\"",
+    "start": "concurrently \"react-scripts start\" \"python MLPart/predict_live_data.py\"",
+    "start:ml": "python MLPart/predict_live_data.py",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
