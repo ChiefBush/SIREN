@@ -345,9 +345,9 @@ function MinerDashboard({ onLogout, userId, isReadOnly = false, isAdminView = fa
                       <p className="text-sm text-gray-400 mt-1 font-mono tracking-tighter">{userProfile?.employee_id || 'ID: UNKNOWN'}</p>
                     </div>
                   </div>
-                  <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${sensorData.wristbandConnected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                    <div className={`w-2 h-2 rounded-full ${sensorData.wristbandConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
-                    <span>{sensorData.wristbandConnected ? 'SMARTBAND ACTIVE' : 'BAND DISCONNECTED'}</span>
+                  <div className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-full text-xs font-bold ${sensorData.wristbandConnected && sensorData.bpm > 0 && sensorData.spo2 > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <div className={`w-2 h-2 rounded-full ${sensorData.wristbandConnected && sensorData.bpm > 0 && sensorData.spo2 > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-400'}`}></div>
+                    <span>{sensorData.wristbandConnected && sensorData.bpm > 0 && sensorData.spo2 > 0 ? 'SMARTBAND ACTIVE' : 'BAND DISCONNECTED'}</span>
                   </div>
                 </div>
 

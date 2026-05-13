@@ -221,18 +221,23 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                 return
             }
 
-            // Show message immediately in chat — don't wait for central node
+            // Show message immediately as 'sending' (clock icon briefly)
+            const savedMsgId = data.id
             setMessages(prev => [...prev, { ...data, api_success: null }])
             setMessage('')
             setLoading(false)
 
+            // After 2s, mark as 'sent' regardless of central node status so the clock doesn't spin forever
+            const uiTimeoutId = setTimeout(() => {
+                setMessages(prev => prev.map(m => m.id === savedMsgId && m.api_success === null ? { ...m, api_success: true } : m))
+            }, 2000)
+
             // Fire HTTP call to central node in the background (non-blocking)
-            const savedMsgId = data.id
             try {
                 const centralNodeUrl = process.env.REACT_APP_CENTRAL_NODE_URL || 'http://172.20.10.2'
                 const controller = new AbortController()
-                // ESP32 takes 9-12s to send LoRa retries before it returns HTTP 200. Give it 30s.
-                const timeoutId = setTimeout(() => controller.abort(), 30000)
+                // ESP32 takes 9-12s to send LoRa retries before it returns HTTP 200. Give it 15s.
+                const abortTimeoutId = setTimeout(() => controller.abort(), 15000)
 
                 const response = await fetch(`${centralNodeUrl}/send`, {
                     method: 'POST',
@@ -240,7 +245,8 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                     body: JSON.stringify({ miner_id: selectedMiner.id, message: msgText }),
                     signal: controller.signal,
                 })
-                clearTimeout(timeoutId)
+                clearTimeout(abortTimeoutId)
+                clearTimeout(uiTimeoutId) // Cancel the 2s fallback since we got a real response
 
                 if (response.ok) {
                     console.log('[SIREN] Message delivered to central node successfully.')
@@ -250,9 +256,11 @@ export default function ChatFloatingButton({ currentUser, onActivityLog }) {
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))
                 }
             } catch (apiError) {
+                clearTimeout(uiTimeoutId)
                 if (apiError.name === 'AbortError') {
-                    console.warn('[SIREN] HTTP request to central node timed out after 30s (likely still delivered via LoRa).')
-                    // Keep api_success as null or don't set it to false, so it doesn't show the red error icon wrongly
+                    console.warn('[SIREN] HTTP request to central node timed out after 15s (likely still delivered via LoRa).')
+                    // Show as sent — don't leave user hanging with a spinning clock
+                    setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: true } : m))
                 } else {
                     console.error('[SIREN] Error sending to central node:', apiError)
                     setMessages(prev => prev.map(m => m.id === savedMsgId ? { ...m, api_success: false } : m))

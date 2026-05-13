@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 
 export default function WatchMessageDisplay({ userId }) {
     const [latestMessage, setLatestMessage] = useState(null)
+    const [dismissedIds, setDismissedIds] = useState(new Set())
 
     useEffect(() => {
         if (!userId) return
@@ -23,9 +24,10 @@ export default function WatchMessageDisplay({ userId }) {
                 },
                 async (payload) => {
                     if (payload.new.sender_role === 'miner') return; // Ignore messages sent by miner
+                    if (dismissedIds.has(payload.new.id)) return; // Skip previously dismissed
 
                     console.log('New message received:', payload)
-                    
+
                     setLatestMessage({
                         ...payload.new,
                         sender_name: payload.new.sender_role === 'admin' ? 'Admin' : 'Supervisor'
@@ -37,7 +39,7 @@ export default function WatchMessageDisplay({ userId }) {
         return () => {
             supabase.removeChannel(channel)
         }
-    }, [userId])
+    }, [userId, dismissedIds])
 
     const fetchLatestMessage = async () => {
         try {
@@ -57,7 +59,7 @@ export default function WatchMessageDisplay({ userId }) {
                 return
             }
 
-            if (data) {
+            if (data && !dismissedIds.has(data.id)) {
                 setLatestMessage({
                     ...data,
                     sender_name: data.sender_role === 'admin' ? 'Admin' : 'Supervisor'
@@ -71,16 +73,20 @@ export default function WatchMessageDisplay({ userId }) {
     const handleDismiss = async () => {
         if (!latestMessage) return
 
+        const messageId = latestMessage.id
+
         // Mark as read in DB
         try {
             await supabase
                 .from('chat_messages')
                 .update({ delivery_status: 'read' })
-                .eq('id', latestMessage.id)
+                .eq('id', messageId)
         } catch (err) {
             console.error('Error marking message as read', err)
         }
 
+        // Track dismissed ID so it never reappears in this session
+        setDismissedIds(prev => new Set(prev).add(messageId))
         setLatestMessage(null)
     }
 

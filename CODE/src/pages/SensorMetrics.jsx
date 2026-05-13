@@ -19,7 +19,10 @@ function SensorMetrics({ userId = null, userEmail = null }) {
     const mq9Status = getSensorStatus(sensorData.mq9, 200, 400)
     const mq135Status = getSensorStatus(sensorData.mq135, 400, 700)
     const tempStatus = getSensorStatus(sensorData.temperature, 35, 45)
-    const humidityStatus = getSensorStatus(sensorData.humidity, 80, 95)
+    // Humidity sensor returns 0 when offline / broken — treat as error instead of safe
+    const humidityStatus = sensorData.humidity === 0
+        ? { status: 'error', color: 'gray', text: 'Sensor Error' }
+        : getSensorStatus(sensorData.humidity, 80, 95)
 
     // Prepare data for charts (convert Date objects to timestamps for recharts)
     const chartData = sensorHistory.map(item => ({
@@ -114,28 +117,6 @@ function SensorMetrics({ userId = null, userEmail = null }) {
                     warningThreshold={80}
                     criticalThreshold={95}
                 />
-            </div>
-
-            {/* Summary Status */}
-            <div className="grid grid-cols-3 gap-4">
-                <div className="bg-green-500 rounded-lg p-6 text-white shadow-md">
-                    <div className="text-4xl font-bold">
-                        {[mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'safe').length}
-                    </div>
-                    <div className="text-lg font-medium mt-2">Safe</div>
-                </div>
-                <div className="bg-yellow-500 rounded-lg p-6 text-white shadow-md">
-                    <div className="text-4xl font-bold">
-                        {[mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'warning').length}
-                    </div>
-                    <div className="text-lg font-medium mt-2">Warning</div>
-                </div>
-                <div className="bg-red-500 rounded-lg p-6 text-white shadow-md">
-                    <div className="text-4xl font-bold">
-                        {[mq2Status, mq9Status, mq135Status, tempStatus, humidityStatus].filter(s => s.status === 'critical').length}
-                    </div>
-                    <div className="text-lg font-medium mt-2">Critical</div>
-                </div>
             </div>
 
             {/* Charts Section */}
